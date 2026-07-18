@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/woff/OpenDyslexic-Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('https://cdn.jsdelivr.net/npm/open-dyslexic@1.0.3/woff/OpenDyslexic-Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --color-navy: #1a1a2e;
+  --color-card: #0f3460;
+  --color-gold: #f5a623;
+  --color-mint: #4ecdc4;
+  --color-coral: #ff6b6b;
+  --color-lavender: #a29bfe;
+  --color-cream: #ffeaa7;
+  --color-success: #55efc4;
+  --font-body: 'OpenDyslexic', sans-serif;
+  --font-heading: 'Fredoka', sans-serif;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: #1a1a2e;
+  color: #ffeaa7;
+  font-family: 'OpenDyslexic', sans-serif;
+  letter-spacing: 0.03em;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Fredoka', sans-serif;
+  letter-spacing: 0.02em;
+}
+
+@keyframes sparkle {
+  0%, 100% { opacity: 0; transform: scale(0.5) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1) rotate(180deg); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+.sparkle-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.sparkle-bg::before,
+.sparkle-bg::after {
+  content: '✦';
+  position: absolute;
+  font-size: 1.2rem;
+  color: #f5a623;
+  opacity: 0;
+  animation: sparkle 4s ease-in-out infinite;
+}
+
+.sparkle-bg::before {
+  top: 15%;
+  left: 20%;
+  animation-delay: 0s;
+}
+
+.sparkle-bg::after {
+  top: 40%;
+  right: 15%;
+  animation-delay: 2s;
+}
