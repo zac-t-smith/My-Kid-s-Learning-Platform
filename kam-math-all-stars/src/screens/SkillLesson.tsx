@@ -50,7 +50,7 @@ export default function SkillLesson({ skill, onGo, onClose }: { skill: string; o
     setPlaying(true)
   }
   return (
-    <div className="screen" data-testid="lesson">
+    <div className="screen wide" data-testid="lesson">
       <div className="top">
         <button className="iconbtn" aria-label="Close lesson" onClick={onClose}>
           ✕
@@ -58,6 +58,7 @@ export default function SkillLesson({ skill, onGo, onClose }: { skill: string; o
         <h1>📺 {SKILL[skill].name}</h1>
         <div className="spacer" />
       </div>
+      <div className="lcols">
       <div className="card stagecard">
         <div className="stage">
           {sc.head && <div className="eqline" style={{ fontSize: 30 }} dangerouslySetInnerHTML={{ __html: sc.head }} />}
@@ -73,6 +74,7 @@ export default function SkillLesson({ skill, onGo, onClose }: { skill: string; o
           )}
         </div>
       </div>
+      <div className="col lside">
       <div aria-live="polite">
         <ReadAlong id="caption" text={sc.say} className="card caption" />
       </div>
@@ -116,6 +118,8 @@ export default function SkillLesson({ skill, onGo, onClose }: { skill: string; o
           Let's play! ▶
         </button>
       )}
+      </div>
+      </div>
     </div>
   )
 }

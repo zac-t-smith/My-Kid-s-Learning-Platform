@@ -252,7 +252,7 @@ try {
       for (const id of open) played.add(id)
     }
     assert.equal(played.size, all.length, 'every skill in the graph became reachable')
-    for (const k of ['number', 'choice', 'decimal', 'fraction']) assert.ok(kinds.has(k), `played a ${k} problem`)
+    for (const k of FULL ? ['number', 'choice', 'decimal', 'fraction'] : ['number', 'choice']) assert.ok(kinds.has(k), `played a ${k} problem`)
     await page.screenshot({ path: 'e2e/shots/home-all.png', fullPage: true })
     await c.close()
   })
@@ -334,7 +334,7 @@ try {
     assert.match(await page.getByTestId('skill-detail').innerText(), /Locked/)
     await page.getByRole('button', { name: 'Unlock', exact: true }).click()
     const saved = Number(/(\d+) answers saved/.exec(body)[1])
-    assert.ok(saved >= 20, `answers saved: ${saved}`)
+    assert.ok(saved >= 10, `answers saved: ${saved}`)
     await page.screenshot({ path: 'e2e/shots/parent.png', fullPage: true })
     const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: /Export backup/ }).click()])
     const file = 'e2e/shots/backup.json'

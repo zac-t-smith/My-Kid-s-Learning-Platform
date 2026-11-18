@@ -263,7 +263,7 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
         : `${th.round} · ${meta?.name ?? ''}`
 
   return (
-    <div className="screen" data-testid="play">
+    <div className="screen wide" data-testid="play">
       <div className="top">
         <button className="iconbtn" aria-label="Quit" onClick={quit}>
           ✕

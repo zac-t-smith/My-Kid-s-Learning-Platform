@@ -142,7 +142,7 @@ export default function Lesson({ L, onGo, onClose }: { L: number; onGo: () => vo
   }, [L])
 
   return (
-    <div className="screen" data-testid="lesson">
+    <div className="screen wide" data-testid="lesson">
       <div className="top">
         <button className="iconbtn" aria-label="Close lesson" onClick={onClose}>
           ✕
@@ -150,9 +150,11 @@ export default function Lesson({ L, onGo, onClose }: { L: number; onGo: () => vo
         <h1>📺 {LEVELS[L].name}</h1>
         <div className="spacer" />
       </div>
+      <div className="lcols">
       <div className="card stagecard">
         <div ref={stageEl} className="stage" style={{ ['--u' as string]: UNIT[L] || '14px' }} />
       </div>
+      <div className="col lside">
       <div aria-live="polite">
         <ReadAlong id="caption" text={ui.caption} className="card caption" />
       </div>
@@ -199,6 +201,8 @@ export default function Lesson({ L, onGo, onClose }: { L: number; onGo: () => vo
           Let's play! ▶
         </button>
       )}
+      </div>
+      </div>
     </div>
   )
 }

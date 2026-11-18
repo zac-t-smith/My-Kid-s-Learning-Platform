@@ -193,7 +193,18 @@ svg text{font-family:'Fredoka Variable','Fredoka',sans-serif}
 .unit{align-self:center;font-size:28px;font-weight:700;margin-left:10px;opacity:.7}
 .eq.eq-sm{font-size:34px;margin-top:6px}
 .visual{margin:6px auto;display:flex;justify-content:center}
-.visual>svg{max-height:260px}
+.visual>svg{max-height:340px}
+/* iPad landscape and wider: the number pad sits beside the problem, so nothing is pushed off the screen */
+@media (min-width:900px){
+  .screen.wide{max-width:1040px}
+  .wide .item{flex-direction:row;align-items:flex-start;gap:14px}
+  .wide .item>.card{flex:1.3;min-width:0}
+  .wide .item>.pad{flex:1;position:sticky;top:10px}
+  .wide .lcols{display:flex;gap:14px;align-items:flex-start}
+  .wide .lcols>.stagecard{flex:1.4;min-width:0}
+  .wide .lcols>.lside{flex:1;position:sticky;top:10px}
+}
+.lcols{display:flex;flex-direction:column;gap:12px}
 .sk{display:flex;align-items:center;gap:12px;padding:12px;border-radius:16px;background:#f3f5f7;margin-bottom:8px}
 .sk.cur{background:#fff3c4;box-shadow:inset 0 0 0 3px var(--acc)}
 .sk .ic{font-size:28px;width:40px;text-align:center}

@@ -130,7 +130,7 @@ export default function ItemCard({ item, swings = 2, goLabel = 'Check', badge, o
   const extra = item.input === 'decimal' ? { key: '.', label: '. point', aria: 'Decimal point' } : item.input === 'fraction' ? { key: '/', label: '⁄ fraction bar', aria: 'Fraction bar' } : item.signed ? { key: '-', label: '+/− below zero', aria: 'Plus or minus' } : undefined
 
   return (
-    <div className="col" data-testid="item" {...(e2e ? { 'data-answer': String(item.answer), 'data-input': item.input, 'data-agree': item.agree ? String(item.agree.isTrue) : '', 'data-skill-name': SKILL[item.skill || '']?.name || '' } : {})}>
+    <div className="col item" data-testid="item" {...(e2e ? { 'data-answer': String(item.answer), 'data-input': item.input, 'data-agree': item.agree ? String(item.agree.isTrue) : '', 'data-skill-name': SKILL[item.skill || '']?.name || '' } : {})}>
       <div className="card prob">
         {badge && <div className="badge">{badge}</div>}
         {showPrompt && <ReadAlong id="problem" text={text} className="story" testId="story" />}
