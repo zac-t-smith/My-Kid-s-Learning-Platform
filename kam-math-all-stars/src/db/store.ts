@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { db, loadMeta, loadProfile, saveProfile, uuid, type Meta } from './db'
-import { derive, type Derived } from './derive'
+import { derive as deriveRaw, seedsOf, type Derived } from './derive'
 import { mergeAttempts, mergeGames, mergeProfiles } from './merge'
 import type { Game, GameRecord } from '../game/ballgame'
 import { freshFields, freshProfile, type Attempt, type Backup, type Fields, type Profile } from './model'
@@ -14,12 +14,15 @@ export interface State {
   sync: { configured: boolean; email: string | null; status: 'off' | 'idle' | 'syncing' | 'error' | 'offline'; lastAt: number; error?: string }
 }
 
+/** Recompute stats and the skill board for these attempts and this profile. */
+const derive = (attempts: Attempt[], p: Profile = state.profile) => deriveRaw(attempts, seedsOf(p.fields, p.times.unlocked))
+
 let state: State = {
   ready: false,
   profile: freshProfile(),
   attempts: [],
   games: [],
-  derived: derive([]),
+  derived: deriveRaw([]),
   sync: { configured: false, email: null, status: 'off', lastAt: 0 },
 }
 let meta: Meta = { deviceId: 'pending', pullCursor: '' }
@@ -50,7 +53,7 @@ export async function initStore() {
   const profile = stored ? { fields: { ...freshFields(), ...stored.fields }, times: stored.times || {} } : await migrateV1()
   const attempts = (await db.attempts.orderBy('ts').toArray()).filter((a) => a.ts > profile.fields.resetAt)
   const games = (await db.games.orderBy('ts').toArray()).filter((g) => g.ts > profile.fields.resetAt)
-  set({ ready: true, profile, attempts, games, derived: derive(attempts) })
+  set({ ready: true, profile, attempts, games, derived: derive(attempts, profile) })
   // Ask the browser not to evict our data when the iPad gets low on space.
   try {
     void navigator.storage?.persist?.()
@@ -84,7 +87,9 @@ export function update(patch: Partial<Fields>) {
   const now = Date.now()
   const profile: Profile = { fields: { ...state.profile.fields, ...patch }, times: { ...state.profile.times } }
   for (const k of Object.keys(patch) as (keyof Fields)[]) profile.times[k] = now
-  set({ profile })
+  // unlocks, known skills and locks change the skill board
+  const boardChanged = 'unlocked' in patch || 'known' in patch || 'lockedSkills' in patch
+  set(boardChanged ? { profile, derived: derive(state.attempts, profile) } : { profile })
   void saveProfile(profile).then(changed)
 }
 
@@ -116,7 +121,7 @@ export async function applyMerged(profile: Profile, incoming: Attempt[], incomin
   })
   const attempts = mergeAttempts(state.attempts, incoming, resetAt)
   const games = mergeGames(state.games, incomingGames, resetAt)
-  set({ profile, attempts, games, derived: derive(attempts) })
+  set({ profile, attempts, games, derived: derive(attempts, profile) })
 }
 
 export function setSync(patch: Partial<State['sync']>) {
@@ -133,8 +138,8 @@ export async function eraseProgress() {
   const now = Math.max(Date.now(), last?.ts ?? 0)
   const f = state.profile.fields
   const profile: Profile = {
-    fields: { ...f, unlocked: 0, current: 0, seenLesson: {}, climbBest: 0, resetAt: now, parentAt: now },
-    times: { ...state.profile.times, unlocked: now, current: now, seenLesson: now, climbBest: now, resetAt: now, parentAt: now },
+    fields: { ...f, unlocked: 0, current: 0, currentSkill: '', known: {}, lockedSkills: {}, seenLesson: {}, climbBest: 0, resetAt: now, parentAt: now },
+    times: { ...state.profile.times, unlocked: now, current: now, currentSkill: now, known: now, lockedSkills: now, seenLesson: now, climbBest: now, resetAt: now, parentAt: now },
   }
   await applyMerged(profile, [])
   await saveLiveGame(null)

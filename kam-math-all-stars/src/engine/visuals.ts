@@ -11,13 +11,15 @@ export function numberLineSVG(pts: number[]): string {
   const pad = Math.max((hi - lo) * 0.07, 2)
   const x = (v: number) => 30 + ((v - (lo - pad)) / (hi + pad - (lo - pad))) * (W - 60)
   const fs = hi >= 10000 ? 13 : 16
+  // a real minus sign for numbers below zero
+  const label = (v: number) => fmtN(v).replace('-', '−')
   let s = `<svg viewBox="0 0 ${W} ${H}" class="nl" role="img" aria-label="number line"><line x1="16" y1="118" x2="${W - 16}" y2="118" stroke="#37474f" stroke-width="3" stroke-linecap="round"/>`
   const seen = new Set<number>()
   pts.forEach((v, i) => {
     if (seen.has(v)) return
     seen.add(v)
     const last = i === pts.length - 1
-    s += `<line x1="${x(v)}" y1="108" x2="${x(v)}" y2="128" stroke="#37474f" stroke-width="3"/><text x="${x(v)}" y="${i % 2 ? 154 : 150}" text-anchor="middle" font-size="${last || i === 0 ? fs + 3 : fs}" font-weight="700" fill="${last ? '#2e7d32' : i === 0 ? '#1d2b36' : '#546e7a'}">${fmtN(v)}</text>`
+    s += `<line x1="${x(v)}" y1="108" x2="${x(v)}" y2="128" stroke="#37474f" stroke-width="3"/><text x="${x(v)}" y="${i % 2 ? 154 : 150}" text-anchor="middle" font-size="${last || i === 0 ? fs + 3 : fs}" font-weight="700" fill="${last ? '#2e7d32' : i === 0 ? '#1d2b36' : '#546e7a'}">${label(v)}</text>`
   })
   for (let i = 1; i < pts.length; i++) {
     const x1 = x(pts[i - 1]),

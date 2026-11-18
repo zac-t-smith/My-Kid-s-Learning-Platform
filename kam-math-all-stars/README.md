@@ -12,6 +12,7 @@ npm install
 npm run dev        # http://localhost:5173
 npm test           # math-engine property tests + data tests
 npm run e2e        # builds, then plays the main flows on an iPad-sized screen
+FULL=1 npm run e2e # same, but plays every skill in the graph (slow)
 npm run build      # tests + typecheck + production build into dist/
 ```
 
@@ -41,6 +42,18 @@ to a host such as Vercel with this folder as the project root.)
   browser's word events, with a timed fallback; tap any word to hear it; three help levels; tapped words
   are listed in Coach's Corner.
 - Season mode, standings and collectibles are Phase 5.
+
+## Phase 3 status
+
+- **Skill graph** (`src/skills/manifest.ts`): 165 skills in 9 strands, each with prerequisites, a grade and a
+  standard tag. The 18 original levels are skills in the graph; their hand-made lessons are kept.
+- **Generators** (`src/skills/strands/*.ts`): one file per strand. Every item has an engine-computed answer,
+  at least two strategies, and distractors from real mistakes. `src/skills/AUTHORING.md` is the contract.
+- **Checks** (`tests/skills.test.ts`): 10,000 random problems per skill; exact-arithmetic check of every equation
+  written in a strategy step; limits; determinism; variety; a lesson that fits in 2 minutes.
+- **Mastery and review** (`src/skills/mastery.ts`): a 0-1 score per skill, review after about 1, 3, 7, 21, 60 days,
+  rounds mixed about 60% focus / 25% review / 15% stretch, and a 15-problem placement test ("Tryouts").
+- **Lessons** for new skills are built from the skill's big idea plus one worked example solved two ways.
 
 ## Cloud sync setup (needs a Supabase project)
 

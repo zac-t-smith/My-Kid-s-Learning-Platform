@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
 import { db } from '../src/db/db'
-import { derive, mastered } from '../src/db/derive'
+import { derive } from '../src/db/derive'
 import { mergeAttempts, mergeProfiles, profilesEqual } from '../src/db/merge'
 import { freshProfile, type Attempt, type Profile } from '../src/db/model'
 import { addAttempt, eraseProgress, exportBackup, getState, importBackup, initStore, update } from '../src/db/store'
@@ -54,16 +54,11 @@ describe('merging two devices', () => {
 })
 
 describe('stats from the attempt log', () => {
-  it('mastery is 5 of the last 6 on the first try', () => {
-    expect(mastered([1, 1, 1, 1, 1])).toBe(false)
-    expect(mastered([1, 1, 0, 1, 1, 1])).toBe(true)
-    expect(mastered([1, 1, 1, 1, 0, 0])).toBe(false)
-    expect(mastered([0, 0, 1, 1, 1, 1, 1, 0])).toBe(true)
-  })
   it('counts tries, first-try accuracy, time and misses per level', () => {
     const d = derive([att('1', 1), att('2', 2, { first: false, tries: 2 }), att('3', 3, { ok: false, first: false, L: 4 })])
     expect(d.stats[0]).toEqual({ att: 2, first: 1, correct: 2, ms: 6000 })
-    expect(d.recent[0]).toEqual([1, 0])
+    expect(d.board.states['as.tens-jumps']).toMatchObject({ n: 2, first: 1 })
+    expect(d.board.states['as.bundle'].n).toBe(1) // old records without a skill id map from their level
     expect(d.missed.map((m) => m.id)).toEqual(['3', '2'])
   })
 })

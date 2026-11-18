@@ -1,30 +1,29 @@
 import { useEffect, useReducer, useRef } from 'react'
-import { fill, pickFresh, storyFor, THEMES } from '../content/themes'
-import { LEVELS, rungName, TOP } from '../content/levels'
-import { mastered } from '../db/derive'
+import { fill, pickFresh, THEMES } from '../content/themes'
+import { rungName, TOP } from '../content/levels'
 import { addAttempt, getState, S, update } from '../db/store'
-import { eqHTML, lhs, plainEq, Q, speechFor, subline } from '../engine/format'
-import { makeProblem } from '../engine/generate'
-import type { Problem } from '../engine/types'
-import { fmtN } from '../engine/util'
+import { hasGen, makeItem } from '../skills/graph'
+import { LEGACY, legacyLevel, SKILL } from '../skills/manifest'
+import { answerPlacement, difficultyFor, frontier, LADDER, PLACEMENT_LENGTH, placementSeeds, planRound, startPlacement, type Placement, type Slot } from '../skills/mastery'
+import type { Item } from '../skills/types'
 import { sfx } from '../lib/sfx'
-import { firstSentence, hush, speak } from '../lib/speech'
-import ReadAlong from '../components/ReadAlong'
+import { hush, speak } from '../lib/speech'
 import { confetti } from '../components/confetti'
+import ItemCard, { answerText, type SwingResult } from '../components/ItemCard'
+import ReadAlong from '../components/ReadAlong'
 import WaysSheet from '../components/WaysSheet'
 
-export interface RoundConfig {
-  mode: 'round' | 'climb'
-  L: number
-}
+export type RoundConfig = { mode: 'round'; skill: string } | { mode: 'climb' } | { mode: 'placement' }
 export type RoundResult =
-  | { mode: 'round'; L: number; wins: number; n: number; levelUp?: number }
+  | { mode: 'round'; skill: string; wins: number; n: number; mastered: boolean; opened: string[]; levelUp?: number }
   | { mode: 'climb'; best: number; newBest: boolean; climbBest: number }
+  | { mode: 'placement'; known: number; next: string[] }
 
 type Res = 'win' | 'ok' | 'miss'
 interface Round {
-  mode: 'round' | 'climb'
-  L: number
+  mode: RoundConfig['mode']
+  skill: string
+  plan: { sk: string; slot: Slot }[]
   i: number
   n: number
   res: Res[]
@@ -35,33 +34,31 @@ interface Round {
   lives: number
   up: number
   climbed: boolean
+  // placement
+  place: Placement
+  // result bookkeeping
   levelUp?: number
+  masteredNow: boolean
+  openBefore: string[]
   // current problem
-  p: Problem
-  tries: number
-  helped: boolean
-  locked: boolean
-  entry: string
-  t0: number
-  tok: number | null
-  agreeStage: boolean
+  item: Item
+  sk: string
+  slot: Slot
+  done: boolean
   // what is on screen
-  eq: string
-  sub: string
   feedback: string
-  ansCls: '' | 'good' | 'bad shake'
-  agreeShake: boolean
-  showNext: boolean
   sheet: null | { reveal: boolean }
   bounce: number
+  tok: number
+  /** Counts problems shown; a new number means a brand-new problem card. */
+  seq: number
 }
 
-/** Automated tests set this so they can answer problems; it is never set for a real player. */
-const e2e = typeof window !== 'undefined' && !!(window as unknown as { __E2E__?: boolean }).__E2E__
 const TH = () => THEMES[S().theme] || THEMES.baseball
 const say = (t: string) => fill(t, S().name, TH())
+const board = () => getState().derived.board
 
-export default function Play({ config, paused, onLesson, onQuit, onEnd }: { config: RoundConfig; paused: boolean; onLesson: (L: number) => void; onQuit: () => void; onEnd: (r: RoundResult) => void }) {
+export default function Play({ config, paused, onLesson, onQuit, onEnd }: { config: RoundConfig; paused: boolean; onLesson: (skill: string) => void; onQuit: () => void; onEnd: (r: RoundResult) => void }) {
   const [, rerender] = useReducer((x: number) => x + 1, 0)
   const ref = useRef<Round | null>(null)
   const alive = useRef(true)
@@ -70,75 +67,65 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
   /** setTimeout that does nothing once the round is gone. */
   const later = (fn: () => void, ms: number) => setTimeout(() => alive.current && fn(), ms)
 
-  /** Read the problem aloud. Word problems are highlighted word by word. Auto-reading follows the read-along level. */
-  function readProblem(p: Problem, asked: boolean) {
-    const lvl = asked ? 1 : S().readLevel || 1
-    if (lvl === 3) return
-    const text = speechFor(p)
-    speak(lvl === 2 ? firstSentence(text) : text, p.fmt === 'story' ? { id: 'problem' } : {})
-  }
-
-  function roundAcc(R: Round) {
-    return R.res.length ? R.res.filter((x) => x === 'win').length / R.res.length : 0
-  }
-
-  function nextProblem(quiet?: boolean) {
+  function nextProblem() {
     const R = ref.current!
-    let bonus = false
-    let p: Problem
+    let sk: string, slot: Slot = 'focus'
+    let item: Item
     if (R.mode === 'climb') {
-      const L = R.rung <= TOP ? R.rung : TOP + 1
-      R.L = L
-      p = makeProblem(L, R.rung)
+      sk = R.rung <= TOP ? LEGACY[R.rung][0] : 'super'
+      item = makeItem(sk, { rung: R.rung, theme: TH(), name: S().name })
+    } else if (R.mode === 'placement') {
+      sk = LADDER[R.place.at]
+      item = makeItem(sk, { d: 2, theme: TH(), name: S().name, only: ['solve', 'missing'] })
     } else {
       if (R.i >= R.n) return endRound()
-      if ((R.i === 4 || R.i === 8) && R.L < TOP && roundAcc(R) >= 0.6) bonus = true
-      p = makeProblem(bonus ? R.L + 1 : R.L)
+      ;({ sk, slot } = R.plan[R.i])
+      item = makeItem(sk, { d: slot === 'stretch' ? 1 : difficultyFor(board().states[sk]), theme: TH(), name: S().name })
     }
-    p.bonus = bonus
-    if (p.fmt === 'story') p.story = storyFor(p, S().name, TH())
-    Object.assign(R, {
-      p, tries: 0, helped: false, locked: false, entry: '', t0: Date.now(), tok: null, agreeStage: p.fmt === 'agree',
-      eq: eqHTML(p), sub: subline(p), feedback: '', ansCls: '', showNext: false, sheet: null,
-    } satisfies Partial<Round>)
+    Object.assign(R, { item, sk, slot, done: false, feedback: '', sheet: null, seq: (R.seq || 0) + 1 } satisfies Partial<Round>)
     rerender()
-    if (quiet) return
-    const ar = S().autoRead
-    if (ar === 'all' || (ar === 'words' && p.fmt !== 'solve')) later(() => ref.current === R && R.p === p && !R.locked && readProblem(p, false), 350)
-    else if (bonus) speak('Bonus challenge! This one is from the next level.')
   }
 
-  // Start the round once.
+  // Start once.
   useEffect(() => {
     alive.current = true
     hush()
-    const base = { i: 0, n: 10, res: [], streak: 0, lives: 3, up: 0, climbed: false, bounce: 0, agreeShake: false } as Partial<Round>
+    const b = board()
+    const base = { i: 0, n: 10, res: [], streak: 0, lives: 3, up: 0, climbed: false, bounce: 0, masteredNow: false, openBefore: frontier(b), plan: [], rung: 0, best: 0, tok: 0, place: startPlacement(b), skill: '' } as Partial<Round>
     if (config.mode === 'climb') {
       const start = Math.max(0, Math.min(S().unlocked, TOP) - 1)
-      ref.current = { ...base, mode: 'climb', L: start, rung: start, best: start } as Round
+      ref.current = { ...base, mode: 'climb', rung: start, best: start } as Round
       speak(`The Climb! Two right in a row moves you up. You have 3 lives. Let's go, ${S().name}!`)
-      nextProblem(true)
+    } else if (config.mode === 'placement') {
+      ref.current = { ...base, mode: 'placement', n: PLACEMENT_LENGTH } as Round
+      speak(`Tryouts! Just show what you know, ${S().name}. Some will be easy and some will be new. That is how we find your spot.`)
     } else {
-      ref.current = { ...base, mode: 'round', L: config.L, rung: 0, best: 0 } as Round
-      nextProblem()
+      ref.current = { ...base, mode: 'round', skill: config.skill, plan: planRound(config.skill, 10, b, Math.random, hasGen) } as Round
     }
+    nextProblem()
     return () => {
       alive.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  function record(ok: boolean) {
+  function onDone(r: SwingResult) {
     const R = ref.current!
-    const p = R.p,
-      L = p.L
-    const first = ok && R.tries === 0 && !R.helped
-    addAttempt({ L, mode: R.mode, fmt: p.fmt, q: plainEq(p), target: p.target, ok, first, tries: R.tries + (ok ? 1 : 0), helped: R.helped, ms: Date.now() - R.t0 })
-    R.res.push(first ? 'win' : ok ? 'ok' : 'miss')
+    R.done = true
+    const first = r.ok && r.tries === 0 && !r.helped
+    const L = R.sk === 'super' ? TOP + 1 : legacyLevel(R.sk)
+    const was = board().states[R.sk]?.mastered
+    addAttempt({ L, sk: R.sk, mode: R.mode, fmt: R.item.agree ? 'agree' : R.item.eqOnly ? 'solve' : 'story', q: plainText(R.item), target: typeof R.item.answer === 'number' ? R.item.answer : 0, ok: r.ok, first, tries: r.tries + (r.ok ? 1 : 0), helped: r.helped, ms: r.ms })
+    R.res.push(first ? 'win' : r.ok ? 'ok' : 'miss')
     R.streak = first ? R.streak + 1 : 0
-    if (L === S().unlocked && L < TOP && mastered(getState().derived.recent[L])) {
-      update({ unlocked: L + 1 })
-      if (R.mode === 'round') R.levelUp = L + 1
+    const now = board().states[R.sk]?.mastered
+    if (!was && now && R.mode !== 'placement') {
+      if (R.sk === R.skill) R.masteredNow = true
+      // keep the old "highest unlocked level" moving for the original levels
+      if (L >= 0 && L === S().unlocked && L < TOP) {
+        update({ unlocked: L + 1 })
+        R.levelUp = L + 1
+      }
     }
     if (R.mode === 'climb') {
       if (first) {
@@ -151,132 +138,68 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
         }
       } else {
         R.up = 0
-        if (!ok) R.lives--
+        if (!r.ok) R.lives--
       }
+    }
+    if (R.mode === 'placement') {
+      R.place = answerPlacement(R.place, first)
+      sfx.tap()
+      const line = first ? pickFresh(['Got it!', 'Nice!', 'Yes!', 'There it is!']) : pickFresh(['Thanks! On to the next one.', 'Good try. Here comes another.', 'No problem. Next pitch!'])
+      R.feedback = line
+      const tok = ++R.tok
+      rerender()
+      return speak(line, { id: 'feedback', onend: () => later(() => ref.current === R && R.tok === tok && goNext(), 300) })
+    }
+    if (r.ok) celebrate(r)
+    else {
+      sfx.bad()
+      let t = say(pickFresh(TH().miss))
+      if (R.mode === 'climb') t += R.lives > 0 ? ` You have ${R.lives} ${R.lives === 1 ? 'life' : 'lives'} left.` : ' That was your last life.'
+      R.feedback = R.mode === 'climb' && R.lives <= 0 ? 'Last life! Let’s see how it works 👇' : 'Let’s look at it together 👇'
+      speak(t)
+      const item = R.item
+      later(() => {
+        if (ref.current === R && R.item === item && R.done) {
+          R.sheet = { reveal: true }
+          rerender()
+        }
+      }, 700)
+      rerender()
     }
   }
 
-  function celebrate() {
+  function celebrate(r: SwingResult) {
     const R = ref.current!
     sfx.good()
     confetti(TH().win)
     R.bounce++
     const t = TH()
     let line: string
-    if (R.tries > 0 || R.helped) line = say(pickFresh(t.fixed))
+    if (r.tries > 0 || r.helped) line = say(pickFresh(t.fixed))
     else if (R.streak === 3) line = say(t.streak[0])
     else if (R.streak === 5) line = say(t.streak[1])
     else if (R.streak === 8) line = say(t.streak[2])
     else line = say(pickFresh(t.praise))
-    if (R.p.bonus && R.tries === 0) line += ' And that was a next level problem!'
+    if (R.slot === 'stretch' && r.tries === 0) line += ' And that was a next level problem!'
     if (R.climbed) {
       R.climbed = false
       later(() => sfx.up(), 250)
       line += ` Climb up! Rung ${R.rung + 1}: ${rungName(R.rung)}!`
     }
     R.feedback = line
-    R.showNext = true
-    const tok = (R.tok = Math.random())
+    const tok = ++R.tok
     rerender()
     speak(line, { id: 'feedback', onend: () => later(() => ref.current === R && R.tok === tok && !R.sheet && !pausedRef.current && goNext(), 650) })
-  }
-
-  function wrong(visual: () => void) {
-    const R = ref.current!
-    R.tries++
-    sfx.bad()
-    visual()
-    if (R.tries === 1) {
-      R.feedback = say(pickFresh(TH().retry))
-      speak(R.feedback, { id: 'feedback' })
-    } else {
-      R.locked = true
-      record(false)
-      let t = say(pickFresh(TH().miss))
-      if (R.mode === 'climb') t += R.lives > 0 ? ` You have ${R.lives} ${R.lives === 1 ? 'life' : 'lives'} left.` : ' That was your last life.'
-      R.feedback = R.mode === 'climb' && R.lives <= 0 ? 'Last life! Let’s see how it works 👇' : 'Let’s look at it together 👇'
-      R.showNext = true
-      speak(t)
-      const p = R.p
-      later(() => {
-        if (ref.current === R && R.p === p) {
-          R.sheet = { reveal: true }
-          rerender()
-        }
-      }, 700)
-    }
-    rerender()
-  }
-
-  function submit(v: number) {
-    const R = ref.current!
-    if (v === R.p.target) {
-      R.locked = true
-      R.ansCls = 'good'
-      R.eq = R.eq.replace(Q, `<span class="blank filled">${fmtN(v)}</span>`)
-      record(true)
-      celebrate()
-    } else {
-      const p = R.p
-      wrong(() => {
-        R.ansCls = 'bad shake'
-        later(() => {
-          if (ref.current === R && R.p === p && !R.locked) {
-            R.entry = ''
-            R.ansCls = ''
-            rerender()
-          }
-        }, 900)
-      })
-    }
-  }
-
-  function key(k: string) {
-    const R = ref.current
-    if (!R || R.locked || R.agreeStage) return
-    sfx.tap()
-    if (k === 'del') R.entry = R.entry.slice(0, -1)
-    else if (k === 'go') {
-      if (R.entry !== '') submit(+R.entry)
-      return
-    } else if (R.entry.length < 8) R.entry = (R.entry === '0' ? '' : R.entry) + k
-    R.ansCls = ''
-    rerender()
-  }
-
-  function agreeTap(yes: boolean) {
-    const R = ref.current
-    if (!R || R.locked || !R.agreeStage) return
-    const p = R.p
-    if (yes && p.isTrue) {
-      R.locked = true
-      record(true)
-      celebrate()
-    } else if (!yes && !p.isTrue) {
-      R.agreeStage = false
-      sfx.good()
-      R.eq = `${lhs(p)} = <span class="strike">${fmtN(p.shown!)}</span> ${Q}`
-      R.sub = 'So what is the real answer?'
-      R.feedback = 'Good eye! 👀'
-      speak(`Good eye, ${S().name}! That is not right. So what is the real answer?`)
-      rerender()
-    } else
-      wrong(() => {
-        R.agreeShake = true
-        later(() => {
-          R.agreeShake = false
-          rerender()
-        }, 500)
-      })
   }
 
   function goNext() {
     const R = ref.current
     if (!R) return
-    R.tok = null
+    R.tok++
     hush()
     R.sheet = null
     if (R.mode === 'climb' && R.lives <= 0) return endClimb()
+    if (R.mode === 'placement' && R.place.done) return endPlacement()
     R.i++
     nextProblem()
   }
@@ -285,7 +208,8 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
     const R = ref.current!
     hush()
     if (R.levelUp !== undefined) update({ current: R.levelUp })
-    onEnd({ mode: 'round', L: R.L, wins: R.res.filter((x) => x === 'win').length, n: R.n, levelUp: R.levelUp })
+    const opened = frontier(board()).filter((id) => !R.openBefore.includes(id))
+    onEnd({ mode: 'round', skill: R.skill, wins: R.res.filter((x) => x === 'win').length, n: R.n, mastered: R.masteredNow, opened, levelUp: R.levelUp })
   }
   function endClimb() {
     const R = ref.current!
@@ -294,6 +218,16 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
     const newBest = top > (S().climbBest || 0)
     if (newBest) update({ climbBest: top })
     onEnd({ mode: 'climb', best: R.best, newBest, climbBest: Math.max(top, S().climbBest || 0) })
+  }
+  function endPlacement() {
+    const R = ref.current!
+    hush()
+    const ids = placementSeeds(R.place)
+    const now = Date.now()
+    const known = { ...S().known }
+    for (const id of ids) known[id] ??= now
+    update({ known, currentSkill: '' })
+    onEnd({ mode: 'placement', known: ids.length, next: frontier(board()).slice(0, 3) })
   }
   function quit() {
     const R = ref.current
@@ -305,17 +239,11 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
     onQuit()
   }
 
-  // Keyboard support (handy with an iPad keyboard case).
+  // Enter moves on when a problem is finished.
   const keyRef = useRef<(e: KeyboardEvent) => void>(() => {})
   keyRef.current = (e) => {
     const R = ref.current
-    if (!R || R.sheet || pausedRef.current) return
-    if (/^[0-9]$/.test(e.key)) key(e.key)
-    else if (e.key === 'Backspace') key('del')
-    else if (e.key === 'Enter') {
-      if (R.locked && R.showNext) goNext()
-      else key('go')
-    }
+    if (R && R.done && !R.sheet && !pausedRef.current && e.key === 'Enter' && R.mode !== 'placement') goNext()
   }
   useEffect(() => {
     const h = (e: KeyboardEvent) => keyRef.current(e)
@@ -324,20 +252,24 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
   }, [])
 
   const R = ref.current
-  if (!R || !R.p) return <div className="screen" />
-  const p = R.p
+  if (!R || !R.item) return <div className="screen" />
   const th = TH()
-  const eqLen = R.eq.replace(/<[^>]+>/g, '').length
-  const eqSize = eqLen > 23 ? 22 : eqLen > 17 ? 28 : eqLen > 13 ? 34 : eqLen > 9 ? 42 : undefined
+  const meta = SKILL[R.sk]
+  const title =
+    R.mode === 'climb'
+      ? `🧗 Rung ${R.rung + 1} · ${rungName(R.rung)}`
+      : R.mode === 'placement'
+        ? `🎯 Tryouts · ${R.place.asked + 1} of ${PLACEMENT_LENGTH}`
+        : `${th.round} · ${meta?.name ?? ''}`
 
   return (
-    <div className="screen" data-testid="play" {...(e2e ? { 'data-target': p.target, 'data-agree': p.fmt === 'agree' ? String(p.isTrue) : '' } : {})}>
+    <div className="screen" data-testid="play">
       <div className="top">
         <button className="iconbtn" aria-label="Quit" onClick={quit}>
           ✕
         </button>
         <div className="roundinfo">
-          <div className="lvlname">{R.mode === 'climb' ? `🧗 Rung ${R.rung + 1} · ${rungName(R.rung)}` : `${th.round} · ${LEVELS[R.L].icon} ${LEVELS[R.L].name}`}</div>
+          <div className="lvlname">{title}</div>
           <div className="slots">
             {R.mode === 'climb' ? (
               <div className="lives" aria-label={`${Math.max(R.lives, 0)} lives left`}>
@@ -349,8 +281,8 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
               Array.from({ length: R.n }, (_, i) => {
                 const r = R.res[i]
                 return (
-                  <span key={i} className={i === R.i && !r ? 'now' : ''}>
-                    {r === 'win' ? th.win : r === 'ok' ? '✓' : r === 'miss' ? '·' : ''}
+                  <span key={i} className={i === R.res.length ? 'now' : ''}>
+                    {R.mode === 'placement' ? (r ? '•' : '') : r === 'win' ? th.win : r === 'ok' ? '✓' : r === 'miss' ? '·' : ''}
                   </span>
                 )
               })
@@ -362,65 +294,32 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
         </div>
       </div>
 
-      <div className="card prob">
-        {p.bonus && <div className="badge">⭐ Bonus challenge!</div>}
-        {p.fmt === 'story' ? (
-          <ReadAlong id="problem" text={p.story} className="story" testId="story" />
-        ) : (
-          <div className="eq" data-testid="eq" style={{ fontSize: eqSize }} dangerouslySetInnerHTML={{ __html: R.eq }} />
-        )}
-        <div className="subq">{R.sub}</div>
-        {R.agreeStage ? (
-          <div className={'agree' + (R.agreeShake ? ' shake' : '')}>
-            <button className="y" onClick={() => agreeTap(true)}>
-              👍 Agree
-            </button>
-            <button className="n" onClick={() => agreeTap(false)}>
-              👎 Disagree
-            </button>
-          </div>
-        ) : (
-          <div className="ansrow">
-            <div className={'ansbox ' + R.ansCls} data-testid="answer" aria-live="polite">
-              {R.entry ? fmtN(+R.entry) : ''}
-            </div>
-          </div>
-        )}
-        <div className="tools">
-          <button onClick={() => readProblem(p, true)}>🔊 Read it</button>
-          <button
-            onClick={() => {
-              if (!R.locked) R.helped = true
-              R.sheet = { reveal: false }
-              rerender()
-            }}
-          >
-            💡 Ways to solve
-          </button>
-        </div>
-      </div>
+      <ItemCard
+        key={R.seq}
+        item={R.item}
+        swings={R.mode === 'placement' ? 1 : 2}
+        badge={R.mode !== 'round' ? undefined : R.slot === 'stretch' ? `⭐ Bonus: ${meta?.name}` : R.slot === 'review' ? `🔁 Review: ${meta?.name}` : undefined}
+        onStrike={() => {
+          sfx.bad()
+          R.feedback = say(pickFresh(th.retry))
+          speak(R.feedback, { id: 'feedback' })
+          rerender()
+        }}
+        onDone={onDone}
+        onWays={
+          R.mode === 'placement'
+            ? undefined
+            : () => {
+                R.sheet = { reveal: false }
+                rerender()
+              }
+        }
+      />
 
       <div aria-live="polite">
         <ReadAlong id="feedback" text={R.feedback} className="feedback" testId="feedback" />
       </div>
-
-      {!R.agreeStage && !R.showNext && (
-        <div className="pad">
-          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
-            <button key={n} onClick={() => key(String(n))}>
-              {n}
-            </button>
-          ))}
-          <button className="del" aria-label="Delete" onClick={() => key('del')}>
-            ⌫
-          </button>
-          <button onClick={() => key('0')}>0</button>
-          <button className="go" aria-label="Check" onClick={() => key('go')}>
-            ✔
-          </button>
-        </div>
-      )}
-      {R.showNext && (
+      {R.done && R.mode !== 'placement' && (
         <button className="btn" onClick={goNext}>
           Next ▶
         </button>
@@ -428,7 +327,8 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
 
       {R.sheet && (
         <WaysSheet
-          p={p}
+          strategies={R.item.strategies}
+          answer={answerText(R.item)}
           reveal={R.sheet.reveal}
           onClose={() => {
             R.sheet = null
@@ -436,13 +336,13 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
             rerender()
           }}
           onLesson={
-            p.L <= TOP
+            R.sk !== 'super'
               ? () => {
                   R.sheet = null
-                  R.tok = null
+                  R.tok++
                   hush()
                   rerender()
-                  onLesson(p.L)
+                  onLesson(R.sk)
                 }
               : undefined
           }
@@ -450,4 +350,11 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
       )}
     </div>
   )
+}
+
+/** One-line text version of a problem for the parent log. */
+export function plainText(it: Item): string {
+  const eq = (it.eq || '').replace(/<span class="fr"><span>(\d+)<\/span><span>(\d+)<\/span><\/span>/g, '$1/$2').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+  const base = it.eqOnly && eq ? eq : fill(it.prompt, S().name, TH()) + (eq ? ` [${eq}]` : '')
+  return (it.agree ? `${base}? (${it.agree.isTrue ? 'true' : 'false'})` : base).slice(0, 160)
 }

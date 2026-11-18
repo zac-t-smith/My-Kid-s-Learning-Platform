@@ -1,7 +1,10 @@
 import { useRef, useState } from 'react'
 import { LEVELS, rungName, TOP } from '../content/levels'
 import { fill, THEMES } from '../content/themes'
-import { howText, type LevelStat } from '../db/derive'
+import { howText } from '../db/derive'
+import { SKILL, SKILLS } from '../skills/manifest'
+import { STRANDS, type Strand } from '../skills/types'
+import { REVIEW_DAYS } from '../skills/mastery'
 import { eraseProgress, exportBackup, importBackup, update, useStore } from '../db/store'
 import { fmtN } from '../engine/util'
 import { clearPin, hasPin, pinMatches, setPin } from '../lib/pin'
@@ -184,29 +187,20 @@ function CloudCard() {
   )
 }
 
-export default function Parent({ onBack }: { onBack: () => void }) {
+export default function Parent({ onBack, onTryouts }: { onBack: () => void; onTryouts: () => void }) {
   const st = useStore()
   const [open, setOpen] = useState(false)
   const [armed, setArmed] = useState(false)
+  const [sel, setSel] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   if (!open) return <PinGate onOk={() => setOpen(true)} onBack={onBack} />
 
   const f = st.profile.fields
   const { stats, missed } = st.derived
   const th = THEMES[f.theme] || THEMES.baseball
-  const row = (key: string, icon: string, name: string, ex: string, status: string, s?: LevelStat) => (
-    <tr key={key}>
-      <td>
-        {icon} {name}
-        <br />
-        <span className="note">{ex}</span>
-      </td>
-      <td>{status}</td>
-      <td>{s ? s.att : 0}</td>
-      <td>{s?.att ? Math.round((s.first / s.att) * 100) + '%' : '–'}</td>
-      <td>{s?.att ? Math.round(s.ms / s.att / 1000) + 's' : '–'}</td>
-    </tr>
-  )
+  const board = st.derived.board
+  const count = (status: string) => SKILLS.filter((x) => board.status[x.id] === status).length
+  const STATUS_LABEL: Record<string, string> = { mastered: '⭐ Mastered', review: '🔁 Needs review', learning: '▶ Learning', open: '○ Ready, not started', locked: '🔒 Locked' }
   const doExport = () => {
     const blob = new Blob([JSON.stringify(exportBackup(), null, 1)], { type: 'application/json' })
     const a = document.createElement('a')
@@ -242,23 +236,70 @@ export default function Parent({ onBack }: { onBack: () => void }) {
           <p className="note" style={{ marginTop: 0 }}>
             🧗 Best Climb: {f.climbBest ? `Rung ${f.climbBest} (${rungName(f.climbBest - 1)})` : 'not tried yet'} · ⚾ Ballgames: {st.games.length} played, {st.games.filter((x) => x.result === 'W').length} won
           </p>
-          <table className="ptable">
-            <thead>
-              <tr>
-                <th>Level</th>
-                <th>Status</th>
-                <th>Tries</th>
-                <th>1st try</th>
-                <th>Avg</th>
-              </tr>
-            </thead>
-            <tbody>
-              {LEVELS.map((l, i) => row(String(i), l.icon, l.name, l.ex, i < f.unlocked ? '⭐ Mastered' : i === f.unlocked ? '▶ Working' : '🔒 Locked', stats[i]))}
-              {stats[TOP + 1] && row('super', '🧗', 'Super Rungs', 'Climb only, past level 18', '—', stats[TOP + 1])}
-            </tbody>
-          </table>
+          <p style={{ margin: '0 0 8px' }} data-testid="skill-counts">
+            <b>{count('mastered') + count('review')}</b> of {SKILLS.length} skills mastered ({count('review')} due for review) · {count('learning')} in progress · {count('open')} ready to start
+          </p>
+          {(Object.keys(STRANDS) as Strand[]).map((k) => (
+            <div key={k} style={{ marginBottom: 10 }}>
+              <div style={{ fontWeight: 700, margin: '6px 0' }}>
+                {STRANDS[k].icon} {STRANDS[k].name}
+              </div>
+              <div className="smap">
+                {SKILLS.filter((x) => x.strand === k).map((x) => {
+                  const s2 = board.states[x.id]
+                  return (
+                    <button key={x.id} className={'st-' + board.status[x.id]} style={{ minHeight: 44, fontSize: 14, outline: sel === x.id ? '3px solid var(--ink)' : undefined }} onClick={() => setSel(sel === x.id ? '' : x.id)}>
+                      {x.name}
+                      {s2?.n ? ` · ${Math.round(s2.score * 100)}%` : ''}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
           <p className="note">
-            A level is mastered at 5 of the last 6 right on the first try (no hints). In regular rounds, problems 5 and 9 are bonus problems from the next level when he's doing well. The Climb goes up a rung every 2 right in a row and never ends — after level 18 it keeps growing into bigger multiplying, dividing, and multi-digit numbers. Every answer is saved on this device the moment he gives it.
+            <span className="sbtn st-mastered" style={{ background: '#c8e6c9' }}>mastered</span> <span className="sbtn" style={{ background: '#ffe0b2' }}>needs review</span> <span className="sbtn" style={{ background: '#fff3c4' }}>learning</span>{' '}
+            <span className="sbtn" style={{ background: '#e1f5fe' }}>ready</span> <span className="sbtn" style={{ opacity: 0.5 }}>locked</span> · Tap a skill for details.
+          </p>
+          {sel && SKILL[sel] && (
+            <div className="unlock" style={{ fontSize: 16, fontWeight: 500 }} data-testid="skill-detail">
+              <b>{SKILL[sel].name}</b> · grade {SKILL[sel].grade} · {SKILL[sel].standard} · {STATUS_LABEL[board.status[sel]]}
+              <br />
+              {board.states[sel]?.n
+                ? `${board.states[sel].n} tries, ${Math.round((board.states[sel].first / board.states[sel].n) * 100)}% first try, about ${Math.round(board.states[sel].ms / board.states[sel].n / 1000)}s each, mastery ${Math.round(board.states[sel].score * 100)}%.`
+                : 'Not tried yet.'}
+              {board.states[sel]?.mastered && board.states[sel].due ? ` Next review ${new Date(board.states[sel].due).toLocaleDateString()}.` : ''}
+              {SKILL[sel].prereqs.length ? ` Needs: ${SKILL[sel].prereqs.map((p) => SKILL[p].name).join(', ')}.` : ''}
+              <div className="row" style={{ marginTop: 8 }}>
+                {!board.states[sel]?.mastered && (
+                  <button className="sbtn pri" onClick={() => (update({ known: { ...f.known, [sel]: Date.now() }, lockedSkills: Object.fromEntries(Object.entries(f.lockedSkills || {}).filter(([id]) => id !== sel)) as Record<string, 1> }), toast('Marked as known'))}>
+                    Mark as known
+                  </button>
+                )}
+                {f.known?.[sel] && (
+                  <button className="sbtn" onClick={() => (update({ known: Object.fromEntries(Object.entries(f.known).filter(([id]) => id !== sel)), parentAt: Date.now() }), toast('No longer marked as known'))}>
+                    Undo "known"
+                  </button>
+                )}
+                {f.lockedSkills?.[sel] ? (
+                  <button className="sbtn" onClick={() => (update({ lockedSkills: Object.fromEntries(Object.entries(f.lockedSkills).filter(([id]) => id !== sel)) as Record<string, 1> }), toast('Unlocked'))}>
+                    Unlock
+                  </button>
+                ) : (
+                  <button className="sbtn" onClick={() => (update({ lockedSkills: { ...(f.lockedSkills || {}), [sel]: 1 } }), toast('Locked'))}>
+                    Lock this skill
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="sbtn pri" onClick={onTryouts}>
+              🎯 Run the placement test (Tryouts, 15 problems)
+            </button>
+          </div>
+          <p className="note">
+            A skill is mastered when its score reaches 80% after at least 5 answers. First-try answers count most, hints and second tries count less. A mastered skill comes back for review after about {REVIEW_DAYS.join(', ')} days; a miss shortens the wait. Practice rounds mix about 60% the chosen skill, 25% review and 15% a stretch skill. Every answer is saved on this device the moment he gives it.
           </p>
         </div>
 
@@ -342,7 +383,7 @@ export default function Parent({ onBack }: { onBack: () => void }) {
             </label>
           </div>
           <div className="field">
-            <label htmlFor="pUnlock">Highest unlocked level</label>
+            <label htmlFor="pUnlock">Original 18 levels: unlocked up to</label>
             <select
               id="pUnlock"
               value={f.unlocked}

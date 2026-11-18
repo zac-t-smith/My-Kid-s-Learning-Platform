@@ -1,23 +1,65 @@
-import { LEVELS, rungName } from '../content/levels'
-import { THEMES, type ThemeKey } from '../content/themes'
 import { useEffect, useState } from 'react'
+import { rungName } from '../content/levels'
+import { THEMES, type ThemeKey } from '../content/themes'
 import { loadLiveGame, update, useStore } from '../db/store'
 import { ordinal, total, type Game } from '../game/ballgame'
+import { legacyLevel, SKILL, SKILLS } from '../skills/manifest'
+import { dueReviews, suggestions, type Board } from '../skills/mastery'
+import { STRANDS, type Strand } from '../skills/types'
 import { sfx } from '../lib/sfx'
 import { speak } from '../lib/speech'
 
-export default function Home({ onPlay, onClimb, onParent, onGame, onCard }: { onPlay: (L: number, withLesson: boolean) => void; onClimb: () => void; onParent: () => void; onGame: (fresh: boolean) => void; onCard: () => void }) {
+const STATUS_ICON = { mastered: '⭐', review: '🔁', learning: '▶', open: '▶', locked: '🔒' } as const
+
+/** One skill with its progress bar and lesson / play buttons. */
+export function SkillRow({ id, board, cur, onLesson, onPlay }: { id: string; board: Board; cur?: boolean; onLesson: () => void; onPlay: () => void }) {
+  const s = SKILL[id]
+  const st = board.states[id]
+  return (
+    <div className={'sk' + (cur ? ' cur' : '')} data-skill={id}>
+      <div className="ic">{board.status[id] === 'review' ? '🔁' : STRANDS[s.strand].icon}</div>
+      <div>
+        <div className="nm">{s.name}</div>
+        <div className="ds">
+          {STRANDS[s.strand].name}
+          {board.status[id] === 'review' ? ' · time for a quick review' : ''}
+        </div>
+        <div className="bar" aria-label={`Progress ${Math.round((st?.score ?? 0) * 100)} percent`}>
+          <i style={{ width: `${Math.round((st?.score ?? 0) * 100)}%` }} />
+        </div>
+      </div>
+      <div className="go">
+        <button aria-label={`Watch lesson: ${s.name}`} onClick={onLesson}>
+          📺
+        </button>
+        <button aria-label={`Play ${s.name}`} onClick={onPlay}>
+          ▶
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export default function Home({ onPlay, onClimb, onParent, onGame, onCard, onTryouts }: { onPlay: (skill: string, withLesson: boolean) => void; onClimb: () => void; onParent: () => void; onGame: (fresh: boolean) => void; onCard: () => void; onTryouts: () => void }) {
   const [live, setLive] = useState<Game | null>(null)
+  const [openStrand, setOpenStrand] = useState<Strand | ''>('')
   useEffect(() => {
     void loadLiveGame().then((g) => setLive(g && g.phase !== 'final' ? g : null))
   }, [])
   const st = useStore()
   const f = st.profile.fields
   const th = THEMES[f.theme] || THEMES.baseball
-  const cur = Math.min(f.current, f.unlocked)
-  const launch = (L: number) => {
-    update({ current: L })
-    onPlay(L, !f.seenLesson[L])
+  const board = st.derived.board
+  const picks = suggestions(board, 3, f.currentSkill)
+  const due = dueReviews(board).slice(0, 2)
+  const seen = (id: string) => !!f.seenLesson[id] || !!f.seenLesson[legacyLevel(id)]
+  const launch = (id: string) => {
+    update({ currentSkill: id })
+    onPlay(id, !seen(id))
+  }
+  const counts = (strand: Strand) => {
+    const ids = SKILLS.filter((s) => s.strand === strand).map((s) => s.id)
+    return { ids, done: ids.filter((id) => board.states[id]?.mastered).length }
   }
   return (
     <div className="screen" data-testid="home">
@@ -47,8 +89,19 @@ export default function Home({ onPlay, onClimb, onParent, onGame, onCard }: { on
           </button>
         </div>
       </div>
-      <div className="card">
-        <div className="lbl">Practice theme</div>
+
+      <div className="card" data-testid="up-next">
+        <div className="lbl">Practice: pick one</div>
+        {picks.map((id) => (
+          <SkillRow key={id} id={id} board={board} cur={id === f.currentSkill} onLesson={() => onPlay(id, true)} onPlay={() => launch(id)} />
+        ))}
+        {due.map((id) => (
+          <SkillRow key={id} id={id} board={board} onLesson={() => onPlay(id, true)} onPlay={() => onPlay(id, false)} />
+        ))}
+        {!picks.length && !due.length && <div className="note">You have mastered everything that is open. Try The Climb or a ball game!</div>}
+        <div className="lbl" style={{ marginTop: 10 }}>
+          Theme
+        </div>
         <div className="chips">
           {(Object.entries(THEMES) as [ThemeKey, (typeof THEMES)[ThemeKey]][]).map(([k, t]) => (
             <button
@@ -65,9 +118,7 @@ export default function Home({ onPlay, onClimb, onParent, onGame, onCard }: { on
           ))}
         </div>
       </div>
-      <button className="btn" onClick={() => launch(cur)}>
-        ▶ Practice {LEVELS[cur].icon} {LEVELS[cur].name}
-      </button>
+
       <div className="card climb">
         <div className="lbl">🧗 The Climb</div>
         <div className="ct">Problems get harder… and harder… and HARDER. How high can you go?</div>
@@ -75,38 +126,42 @@ export default function Home({ onPlay, onClimb, onParent, onGame, onCard }: { on
         <button className="btn" onClick={onClimb}>
           🧗 Start climbing
         </button>
+        <button className="chip" onClick={onTryouts}>
+          🎯 Tryouts: show what you know
+        </button>
       </div>
-      <div className="card">
-        <div className="lbl">Levels</div>
-        {LEVELS.map((l, i) => {
-          const locked = i > f.unlocked
-          const rec = (st.derived.recent[i] || []).slice(-6)
+
+      <div className="card" data-testid="skill-map">
+        <div className="lbl">All skills</div>
+        {(Object.keys(STRANDS) as Strand[]).map((k) => {
+          const c = counts(k)
+          const open = openStrand === k
           return (
-            <div key={i} className={'lvl' + (locked ? ' locked' : '') + (i === cur ? ' cur' : '')}>
-              <div className="ic">{locked ? '🔒' : i < f.unlocked ? '⭐' : l.icon}</div>
-              <div>
-                <div className="nm">
-                  {i + 1}. {l.name}
-                </div>
-                <div className="ds">
-                  {l.desc} · {l.ex}
-                </div>
-                {!locked && (
-                  <div className="meter">
-                    {Array.from({ length: 6 }, (_, j) => (
-                      <i key={j} className={rec[j] ? 'on' : ''} />
-                    ))}
+            <div key={k}>
+              <button className="sk" style={{ width: '100%', textAlign: 'left' }} aria-expanded={open} onClick={() => setOpenStrand(open ? '' : k)}>
+                <div className="ic">{STRANDS[k].icon}</div>
+                <div>
+                  <div className="nm">{STRANDS[k].name}</div>
+                  <div className="ds">
+                    ⭐ {c.done} of {c.ids.length}
                   </div>
-                )}
-              </div>
-              {!locked && (
-                <div className="go">
-                  <button aria-label={`Watch lesson: ${l.name}`} onClick={() => onPlay(i, true)}>
-                    📺
-                  </button>
-                  <button aria-label={`Play ${l.name}`} onClick={() => launch(i)}>
-                    ▶
-                  </button>
+                </div>
+                <div style={{ marginLeft: 'auto', fontSize: 22 }}>{open ? '▲' : '▼'}</div>
+              </button>
+              {open && (
+                <div className="smap" style={{ marginBottom: 10 }}>
+                  {c.ids.map((id) => {
+                    const status = board.status[id]
+                    return status === 'locked' ? (
+                      <span key={id} className="st-locked">
+                        🔒 {SKILL[id].name}
+                      </span>
+                    ) : (
+                      <button key={id} className={'st-' + status} onClick={() => (status === 'mastered' || status === 'review' ? onPlay(id, false) : launch(id))}>
+                        {STATUS_ICON[status]} {SKILL[id].name}
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>

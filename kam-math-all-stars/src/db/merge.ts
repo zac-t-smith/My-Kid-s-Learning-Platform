@@ -20,6 +20,11 @@ export function mergeProfiles(a: Profile, b: Profile): Profile {
       vb = b.fields[k] ?? out.fields[k]
     if (EARNED.includes(k) && ta >= parentAt && tb >= parentAt) {
       f[k] = Math.max(va as number, vb as number)
+    } else if (k === 'known') {
+      // a skill marked as known on either device stays known (unless a parent erased since)
+      const ra = a.fields.resetAt || 0,
+        rb = b.fields.resetAt || 0
+      f[k] = { ...(ta >= rb ? (va as object) : {}), ...(tb >= ra ? (vb as object) : {}) }
     } else if (k === 'wordTaps') {
       // per word, keep the higher count
       const m: Record<string, number> = { ...(va as Record<string, number>) }

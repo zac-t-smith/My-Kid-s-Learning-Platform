@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 
 /** Big number pad. Also listens to a real keyboard (handy with an iPad keyboard case). */
-export default function NumPad({ onKey, goLabel = 'Check', goIcon = '✔' }: { onKey: (k: string) => void; goLabel?: string; goIcon?: string }) {
+export default function NumPad({ onKey, goLabel = 'Check', goIcon = '✔', extra }: { onKey: (k: string) => void; goLabel?: string; goIcon?: string; extra?: { key: string; label: string; aria: string } }) {
   const cb = useRef(onKey)
   cb.current = onKey
   useEffect(() => {
@@ -10,6 +10,7 @@ export default function NumPad({ onKey, goLabel = 'Check', goIcon = '✔' }: { o
       if (/^[0-9]$/.test(e.key)) cb.current(e.key)
       else if (e.key === 'Backspace') cb.current('del')
       else if (e.key === 'Enter') cb.current('go')
+      else if (e.key === '.' || e.key === '/' || e.key === '-') cb.current(e.key)
     }
     document.addEventListener('keydown', h)
     return () => document.removeEventListener('keydown', h)
@@ -28,6 +29,11 @@ export default function NumPad({ onKey, goLabel = 'Check', goIcon = '✔' }: { o
       <button className="go" aria-label={goLabel} onClick={() => onKey('go')}>
         {goIcon}
       </button>
+      {extra && (
+        <button className="del" style={{ gridColumn: 'span 3' }} aria-label={extra.aria} onClick={() => onKey(extra.key)}>
+          {extra.label}
+        </button>
+      )}
     </div>
   )
 }

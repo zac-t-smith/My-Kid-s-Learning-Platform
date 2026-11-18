@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { countChecked, falseSteps, isCorrect, sameValue, validateItem } from '../src/skills/check'
 import { GENS, LIMITS, makeItem, TEACH } from '../src/skills/graph'
 import { choice } from '../src/skills/kit'
+import { buildScenes } from '../src/skills/lesson'
 import { LEGACY, SKILL, SKILLS } from '../src/skills/manifest'
 import { mulberry32 } from '../src/engine/util'
 import type { Difficulty } from '../src/skills/types'
@@ -92,6 +93,12 @@ describe(`every skill: ${N.toLocaleString()} random problems each`, () => {
         const a = makeItem(s.id, { rng: mulberry32(99), d: 2 }),
           b = makeItem(s.id, { rng: mulberry32(99), d: 2 })
         expect(JSON.stringify(a)).toBe(JSON.stringify(b))
+        // the lesson: the big idea, a worked example, two ways, the answer
+        const scenes = buildScenes(s.id, 'Kam')
+        if (scenes.length < 6 || scenes.length > 20) throw new Error(`${s.id}: lesson has ${scenes.length} scenes`)
+        if (scenes.some((sc) => !sc.say || /NaN|undefined|\{n\}/.test(sc.say))) throw new Error(`${s.id}: lesson has a broken line`)
+        const words = scenes.reduce((n, sc) => n + sc.say.split(/\s+/).length, 0)
+        if (words > 300) throw new Error(`${s.id}: lesson is ${words} words, too long for 2 minutes`)
         const t = TEACH[s.id]
         if (!t || t.length < 20 || t.length > 260) throw new Error(`${s.id}: needs a "teach" line of 20 to 260 characters`)
       }

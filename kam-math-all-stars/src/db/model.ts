@@ -7,9 +7,11 @@ export interface Attempt {
   id: string
   /** When it was answered (ms since epoch, device clock). */
   ts: number
-  /** Level the problem belongs to (18 = Super Rungs). */
+  /** Original level number (18 = Super Rungs), or -1 for a skill that is not one of the original levels. */
   L: number
-  mode: 'round' | 'climb' | 'game'
+  /** Skill id from the skill graph (older records only have L). */
+  sk?: string
+  mode: 'round' | 'climb' | 'game' | 'placement'
   /** Problem format. 'pitch' and 'field' are Ballgame defense challenges. */
   fmt: Fmt | 'pitch' | 'field'
   /** Plain-text problem, e.g. "54 − 27". */
@@ -37,7 +39,8 @@ export interface Fields {
   /** Highest unlocked level index. */
   unlocked: number
   current: number
-  seenLesson: Record<number, 1>
+  /** Lessons he has watched: level number or skill id. */
+  seenLesson: Record<string, 1>
   voice: string
   rate: number
   autoRead: 'words' | 'all' | 'off'
@@ -46,6 +49,12 @@ export interface Fields {
   /** Parent PIN check value + salt ('' = no PIN yet). */
   pin: string
   pinSalt: string
+  /** The skill he chose to work on. */
+  currentSkill: string
+  /** Skills marked as known by the placement test or a parent: id → when. */
+  known: Record<string, number>
+  /** Skills a parent has locked. */
+  lockedSkills: Record<string, 1>
   /** Ballgame team. */
   teamName: string
   teamColor: string
@@ -80,6 +89,9 @@ export const freshFields = (): Fields => ({
   sfx: true,
   climbBest: 0,
   pin: '',
+  currentSkill: '',
+  known: {},
+  lockedSkills: {},
   teamName: '',
   teamColor: '#c62828',
   stadium: 'sandlot',

@@ -1,18 +1,20 @@
 import { useEffect, useReducer, useRef, useState } from 'react'
-import { rungName, TOP } from '../content/levels'
-import { fill, pickFresh, storyFor, THEMES } from '../content/themes'
-import { mastered } from '../db/derive'
+import { TOP } from '../content/levels'
+import { fill, pickFresh, THEMES } from '../content/themes'
 import { uuid } from '../db/db'
 import { addAttempt, addGame, getState, loadLiveGame, S, saveLiveGame, update } from '../db/store'
-import { plainEq } from '../engine/format'
-import { makeProblem } from '../engine/generate'
-import type { Fmt, Problem } from '../engine/types'
+import type { Fmt } from '../engine/types'
+import { hasGen, makeItem } from '../skills/graph'
+import { legacyLevel, SKILL } from '../skills/manifest'
+import { difficultyFor, dueReviews, stretchOf, suggestions } from '../skills/mastery'
+import type { Difficulty, Item } from '../skills/types'
 import { sfx } from '../lib/sfx'
 import { hush, speak } from '../lib/speech'
 import { confetti } from '../components/confetti'
 import ReadAlong from '../components/ReadAlong'
 import WaysSheet from '../components/WaysSheet'
-import AtBat, { type SwingResult } from '../game/AtBat'
+import ItemCard, { answerText, type SwingResult } from '../components/ItemCard'
+import { plainText } from './Play'
 import { Fielding, Pitching, type DefenseResult } from '../game/Defense'
 import { Field, Scoreboard, type Run } from '../game/Field'
 import {
@@ -25,19 +27,35 @@ import { ADJUST_LINES, BALL_LINES, DEF_OUT_LINES, HIT_LINES, QUICK_LINES, runsLi
 const BB = THEMES.baseball
 const say = (t: string, g?: Game) => fill(t, S().name, BB).replace(/\{o\}/g, g?.opp.name || '')
 
-/** Which level a pitch throws. Past the last level it turns into Super Rungs. */
-function pitchProblem(pitch: Pitch): Problem {
-  const U = S().unlocked
-  const L = U + (pitch === 'slider' ? 1 : pitch === 'meatball' ? 2 : 0)
-  const only: Fmt[] | undefined = pitch === 'fastball' ? ['solve'] : pitch === 'curveball' ? ['story', 'agree', 'missing'] : undefined
-  const p = L > TOP ? makeProblem(TOP + 1, L, Math.random, only) : makeProblem(L, undefined, Math.random, only)
-  if (p.fmt === 'story') p.story = storyFor(p, S().name, BB)
-  return p
+/**
+ * What each pitch throws, from the skill he is working on:
+ * fastball = that skill, gentle (or now and then a skill that is due for review);
+ * curveball = that skill, harder; slider = the next skill; meatball = the skill after that.
+ */
+function pitchPlan(): Record<Pitch, { sk: string; d: Difficulty; only?: Fmt[] }> {
+  const b = getState().derived.board
+  const focus = suggestions(b, 1, S().currentSkill)[0] ?? dueReviews(b)[0] ?? 'as.thousands'
+  const next = stretchOf(focus, b, hasGen)
+  const after = next === focus ? focus : stretchOf(next, b, hasGen)
+  const d = difficultyFor(b.states[focus])
+  return {
+    fastball: { sk: focus, d: 1, only: ['solve'] },
+    curveball: { sk: focus, d: Math.max(2, d) as Difficulty, only: ['story', 'agree', 'missing'] },
+    slider: next === focus ? { sk: focus, d: 3 } : { sk: next, d: 1 },
+    meatball: after === next ? { sk: next, d: next === focus ? 3 : 2 } : { sk: after, d: 1 },
+  }
 }
-const pitchLevelName = (pitch: Pitch) => rungName(S().unlocked + (pitch === 'slider' ? 1 : pitch === 'meatball' ? 2 : 0))
+function pitchItem(pitch: Pitch): { sk: string; item: Item } {
+  const plan = pitchPlan()[pitch]
+  let { sk } = plan
+  // The pitcher mixes it up: some fastballs are a quick review of something he has mastered.
+  const due = dueReviews(getState().derived.board)
+  if (pitch === 'fastball' && due.length && Math.random() < 0.3) sk = due[0]
+  return { sk, item: makeItem(sk, { d: plan.d, only: sk === plan.sk ? plan.only : undefined, theme: BB, name: S().name }) }
+}
 
 type Turn =
-  | { kind: 'bat'; pitch: Pitch; p: Problem }
+  | { kind: 'bat'; pitch: Pitch; sk: string; item: Item }
   | { kind: 'pitching'; c: PitchChallenge }
   | { kind: 'fielding'; c: FieldChallenge }
 
@@ -56,6 +74,8 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
     tok: 0,
     /** The announcer is setting the scene; wait before reading the challenge. */
     leadIn: false,
+    /** Counts turns; a new number means a brand-new problem card. */
+    seq: 0,
   })
   const alive = useRef(true)
   const later = (fn: () => void, ms: number) => setTimeout(() => alive.current && fn(), ms)
@@ -153,7 +173,8 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
   }
 
   /* ---------- plays ---------- */
-  const U = f.unlocked
+  // Defense questions follow his grade: the grade of the skill he is on, mapped to the old 0-17 difficulty scale.
+  const U = Math.min(17, Math.max(f.unlocked, ((SKILL[suggestions(getState().derived.board, 1, f.currentSkill)[0]]?.grade ?? 2) - 1) * 4))
   const afterPlay = () => {
     u.played = true
     save()
@@ -193,6 +214,7 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
       save()
       if (g!.phase !== 'defense') return
     }
+    u.seq++
     u.turn = kind === 'pitching' ? { kind, c: makePitchChallenge(U, g!.opp.rating) } : { kind, c: makeFieldChallenge(U, g!.opp.rating) }
   }
   function finish() {
@@ -218,12 +240,14 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
 
   function onSwing(r: SwingResult) {
     const t = u.turn as Extract<Turn, { kind: 'bat' }>
-    const { p, pitch } = t
+    const { item, pitch, sk } = t
     const first = r.ok && r.tries === 0 && !r.helped
-    const quick = first && isQuick(r.ms, getState().derived.stats[p.L])
+    const prev = getState().derived.board.states[sk]
+    const quick = first && isQuick(r.ms, prev && { att: prev.n, ms: prev.ms })
     const bases = r.ok ? hitBases(pitch, quick, r.tries > 0) : 0
-    addAttempt({ L: p.L, mode: 'game', fmt: p.fmt, q: plainEq(p), target: p.target, ok: r.ok, first, tries: r.tries + (r.ok ? 1 : 0), helped: r.helped, ms: r.ms, gid: g!.id, pitch, bases })
-    if (p.L === S().unlocked && p.L < TOP && mastered(getState().derived.recent[p.L])) update({ unlocked: p.L + 1 })
+    const L = legacyLevel(sk)
+    addAttempt({ L, sk, mode: 'game', fmt: item.agree ? 'agree' : item.eqOnly ? 'solve' : 'story', q: plainText(item), target: typeof item.answer === 'number' ? item.answer : 0, ok: r.ok, first, tries: r.tries + (r.ok ? 1 : 0), helped: r.helped, ms: r.ms, gid: g!.id, pitch, bases })
+    if (L >= 0 && L === S().unlocked && L < TOP && !prev?.mastered && getState().derived.board.states[sk]?.mastered) update({ unlocked: L + 1 })
     if (r.ok) {
       const before = [0, ...g!.bases.flatMap((on, i) => (on ? [i + 1] : []))]
       const runs = applyHit(g!, bases, first)
@@ -254,7 +278,7 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
 
   function onDefense(r: DefenseResult) {
     const t = u.turn as Exclude<Turn, { kind: 'bat' }>
-    addAttempt({ L: U, mode: 'game', fmt: t.kind === 'pitching' ? 'pitch' : 'field', q: t.c.prompt, target: t.kind === 'fielding' ? Number(t.c.choices[t.c.answer]) || 0 : 0, ok: r.ok, first: r.ok && r.tries === 0, tries: r.tries + (r.ok ? 1 : 0), helped: false, ms: r.ms, gid: g!.id })
+    addAttempt({ L: -1, sk: 'defense', mode: 'game', fmt: t.kind === 'pitching' ? 'pitch' : 'field', q: t.c.prompt, target: t.kind === 'fielding' ? Number(t.c.choices[t.c.answer]) || 0 : 0, ok: r.ok, first: r.ok && r.tries === 0, tries: r.tries + (r.ok ? 1 : 0), helped: false, ms: r.ms, gid: g!.id })
     if (r.ok) {
       applyOut(g!)
       sfx.pop()
@@ -342,6 +366,7 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
     )
   } else if (!u.turn) {
     // top half: pick your pitch
+    const plan = pitchPlan()
     panel = (
       <div className="col" data-testid="pitch-pick">
         <div className="card">
@@ -356,7 +381,8 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
                   onClick={() => {
                     hush()
                     sfx.whoosh()
-                    u.turn = { kind: 'bat', pitch: k, p: pitchProblem(k) }
+                    u.seq++
+                    u.turn = { kind: 'bat', pitch: k, ...pitchItem(k) }
                     u.msg = `Here comes the ${p.label.toLowerCase()}!`
                     rerender()
                   }}
@@ -364,7 +390,7 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
                   <span className="pi">{p.icon}</span>
                   <b>{p.label}</b>
                   <span className="ph">{p.hit}</span>
-                  <span className="pn">{k === 'curveball' ? 'Tricky · ' : ''}{pitchLevelName(k)}</span>
+                  <span className="pn">{k === 'curveball' ? 'Tricky · ' : ''}{SKILL[plan[k].sk]?.name}</span>
                 </button>
               )
             })}
@@ -378,9 +404,10 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
   } else if (u.turn.kind === 'bat') {
     const t = u.turn
     panel = (
-      <AtBat
-        key={u.playKey + '-' + g.bat.ab}
-        p={t.p}
+      <ItemCard
+        key={u.seq}
+        item={t.item}
+        goLabel="Swing"
         onStrike={() => announce(pickFresh(STRIKE_LINES))}
         onDone={onSwing}
         onWays={() => {
@@ -390,9 +417,9 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
       />
     )
   } else if (u.turn.kind === 'pitching') {
-    panel = <Pitching key={g.def.chances} delay={u.leadIn ? 5200 : 700} c={u.turn.c} onBall={(hint) => announce(`${pickFresh(BALL_LINES)} ${hint}`)} onDone={onDefense} />
+    panel = <Pitching key={u.seq} delay={u.leadIn ? 5200 : 700} c={u.turn.c} onBall={(hint) => announce(`${pickFresh(BALL_LINES)} ${hint}`)} onDone={onDefense} />
   } else {
-    panel = <Fielding key={g.def.chances} delay={u.leadIn ? 5200 : 700} c={u.turn.c} onDone={onDefense} />
+    panel = <Fielding key={u.seq} delay={u.leadIn ? 5200 : 700} c={u.turn.c} onDone={onDefense} />
   }
 
   return (
@@ -427,7 +454,8 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
       </div>
       {u.sheet && u.turn?.kind === 'bat' && (
         <WaysSheet
-          p={u.turn.p}
+          strategies={u.turn.item.strategies}
+          answer={answerText(u.turn.item)}
           reveal={u.played}
           onClose={() => {
             u.sheet = false

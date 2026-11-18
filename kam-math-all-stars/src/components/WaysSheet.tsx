@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { strategies } from '../engine/strategies'
 import ReadAlong from './ReadAlong'
-import type { Problem } from '../engine/types'
-import { fmtN } from '../engine/util'
+import type { Strat } from '../skills/types'
 import { numberLineSVG } from '../engine/visuals'
 import { speak, tokenize, type Tok } from '../lib/speech'
 
 /** "Ways to solve": every strategy for this problem, with its picture and a Hear-it button. */
-export default function WaysSheet({ p, reveal, onClose, onLesson }: { p: Problem; reveal: boolean; onClose: () => void; onLesson?: () => void }) {
-  const list = useMemo(() => strategies(p), [p])
+export default function WaysSheet({ strategies: list, answer, reveal, onClose, onLesson }: { strategies: Strat[]; answer: string; reveal: boolean; onClose: () => void; onLesson?: () => void }) {
   const [i, setI] = useState(0)
   const reduce = useReducedMotion()
   const s = list[i]
@@ -46,7 +43,7 @@ export default function WaysSheet({ p, reveal, onClose, onLesson }: { p: Problem
             ✕
           </button>
         </div>
-        {reveal && <div className="reveal">The answer is {fmtN(p.target)}</div>}
+        {reveal && <div className="reveal">The answer is {answer}</div>}
         <div className="chips">
           {list.map((st, k) => (
             <button
