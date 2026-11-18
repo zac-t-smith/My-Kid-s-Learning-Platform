@@ -1695,7 +1695,7 @@ export const gens: Record<string, Gen> = {
       const cases = (FAMILY[x].tri ? TRI_CASES : QUAD_CASES).filter((c) => fits(c, x))
       const hit = cases.filter((c) => fits(c, y)).length
       return {
-        prompt: r.pick([`Is ${aOrAn(x)} always, sometimes, or never ${FAMILY[y].tri ? yShort : aOrAn(y)}?`, `Pick the word that makes it true: ${aOrAn(x).replace(/^a/, 'A')} is ___ ${FAMILY[y].tri ? yShort : aOrAn(y)}.`]),
+        prompt: r.pick([`Is ${aOrAn(x)} always, sometimes, or never ${FAMILY[y].tri ? yShort : aOrAn(y)}?`, `{n} says ${aOrAn(x)} is ${FAMILY[y].tri ? yShort : aOrAn(y)}. Is that always, sometimes, or never true?`]),
         ...choice(ans, ['always', 'sometimes', 'never'], rng, true),
         strategies: [
           strat('Check the Rules', [`${aOrAn(x).replace(/^a/, 'A')} must have ${FAMILY[x].say}.`, `${aOrAn(y).replace(/^a/, 'A')} must have ${FAMILY[y].say}.`, rule === 'always' ? `The first rule already gives everything the second rule needs: always.` : rule === 'never' ? `The two rules fight. A shape cannot have both: never.` : `Some shapes fit both rules and some fit only the first: sometimes.`], rule),

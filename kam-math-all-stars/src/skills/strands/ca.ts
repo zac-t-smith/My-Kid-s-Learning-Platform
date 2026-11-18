@@ -177,7 +177,7 @@ function slopeGrid(a: P, b: P, G: number, legs: boolean): string {
   s += lineEl([X(0), Y(0)], [X(G), Y(0)], INK, 3) + lineEl([X(0), Y(0)], [X(0), Y(G)], INK, 3)
   if (legs) {
     s += lineEl([X(a[0]), Y(a[1])], [X(b[0]), Y(a[1])], BLUE, 4, '7 6') + lineEl([X(b[0]), Y(a[1])], [X(b[0]), Y(b[1])], '#2e7d32', 4, '7 6')
-    s += T((X(a[0]) + X(b[0])) / 2, Y(a[1]) + 17, `${b[0] - a[0]} across`, { size: 14, fill: BLUE, halo: true }) + T(X(b[0]) + 7, (Y(a[1]) + Y(b[1])) / 2 + 5, `${b[1] - a[1]} up`, { size: 14, fill: '#2e7d32', anchor: 'start', halo: true })
+    s += T((X(a[0]) + X(b[0])) / 2 + (a[1] === 0 ? 34 : 0), Y(a[1]) + (a[1] === 0 ? -8 : 17), `${b[0] - a[0]} across`, { size: 14, fill: BLUE, halo: true }) + T(X(b[0]) + 7, (Y(a[1]) + Y(b[1])) / 2 + 5, `${b[1] - a[1]} up`, { size: 14, fill: '#2e7d32', anchor: 'start', halo: true })
   }
   s += lineEl([X(a[0]), Y(a[1])], [X(b[0]), Y(b[1])], RED, 4)
   ;[a, b].forEach((p, i) => {
@@ -289,6 +289,7 @@ export const gens: Record<string, Gen> = {
   'ca.rate-change': (rng, d) => {
     const r = R(rng)
     const mv = MOVING(r)
+    const It = mv.it[0].toUpperCase() + mv.it.slice(1)
     const N = 4 // seconds 0..4 shown
     const t = r.pick(d === 1 ? [0, 1] : d === 2 ? [1, 2, 3] : [3, 4, 5])
     const secs = Array.from({ length: N + 1 }, (_, i) => i)
@@ -345,7 +346,7 @@ export const gens: Record<string, Gen> = {
       const k = r.int(2, N)
       const ans = pos[k] - pos[k - 1]
       return {
-        prompt: `${mv.intro} It speeds up. The table shows how far ${mv.it} is at each second. How far does it go from second ${k - 1} to second ${k}?`,
+        prompt: `${mv.intro} ${It} speeds up. The table shows how far ${mv.it} is at each second. How far does it go from second ${k - 1} to second ${k}?`,
         visual: tbl,
         input: 'number',
         answer: ans,
@@ -365,7 +366,7 @@ export const gens: Record<string, Gen> = {
       const whole = speeds[N] - speeds[0]
       const sTbl = table([['Second', secs.map((s) => s + 1)], ['Speed', speeds]])
       return {
-        prompt: `${mv.intro} It gets faster and faster. The table shows its speed in feet each second. How much does the speed grow each second?`,
+        prompt: `${mv.intro} ${It} gets faster and faster. The table shows its speed in feet each second. How much does the speed grow each second?`,
         visual: sTbl,
         input: 'number',
         answer: a,
@@ -383,7 +384,7 @@ export const gens: Record<string, Gen> = {
     if (t === 4) {
       const span = diffs[N - 1] - diffs[0]
       return {
-        prompt: `${mv.intro} It speeds up. The table shows how far ${mv.it} is at each second. Each jump is bigger than the last. How much bigger?`,
+        prompt: `${mv.intro} ${It} speeds up. The table shows how far ${mv.it} is at each second. Each jump is bigger than the last. How much bigger?`,
         visual: tbl,
         input: 'number',
         answer: a,
@@ -401,7 +402,7 @@ export const gens: Record<string, Gen> = {
     const next = pos[N] + nextJump
     const all = [...diffs, nextJump]
     return {
-      prompt: `${mv.intro} It speeds up. The table shows how far ${mv.it} is at each second. The jumps keep growing the same way. How far is ${mv.it} at second ${N + 1}?`,
+      prompt: `${mv.intro} ${It} speeds up. The table shows how far ${mv.it} is at each second. The jumps keep growing the same way. How far is ${mv.it} at second ${N + 1}?`,
       visual: tbl,
       input: 'number',
       answer: sum(Array.from({ length: N + 1 }, (_, i) => j0 + a * i)),
@@ -441,7 +442,8 @@ export const gens: Record<string, Gen> = {
     const g = (guide?: number) => chart({ n, ymax, ystep, ylabel, pts: vals, guide })
     const intro = dist ? `The graph shows how far ${who} is from the start.` : `The graph shows the speed of ${who}.`
     const what = dist ? 'How far from the start' : 'How fast'
-    const t = r.pick(d === 1 ? [0, 0, 4] : d === 2 ? [0, 2, 3, 4] : [2, 3, 3, 5])
+    const t0 = r.pick(d === 1 ? [0, 0, 4] : d === 2 ? [0, 2, 3, 4] : [2, 3, 3, 5])
+    const t = t0 === 5 && dist ? 3 : t0
     const unit = dist ? 'feet' : 'feet each second'
     if (t === 2) {
       // when does it reach a value? (must happen at one second only)
@@ -518,14 +520,14 @@ export const gens: Record<string, Gen> = {
       // is it going up, down or staying flat?
       const i = r.int(0, n - 1)
       const diff = vals[i + 1] - vals[i]
-      const words = dist ? ['moving away', 'standing still', 'coming back'] : ['speeding up', 'staying the same speed', 'slowing down']
+      const words = ['speeding up', 'staying the same speed', 'slowing down']
       const ans = diff > 0 ? words[0] : diff === 0 ? words[1] : words[2]
       const slopeUp = k[i + 1] > k[i],
         flat = k[i + 1] === k[i]
       return {
         prompt: `${intro} What is it doing from second ${i} to second ${i + 1}?`,
         visual: g(),
-        ...choice(ans, dist ? words.slice(0, 2) : words, rng, true),
+        ...choice(ans, words, rng, true),
         strategies: [
           strat('Compare the Two Dots', [`At second ${i} the dot is at ${vals[i]}. At second ${i + 1} it is at ${vals[i + 1]}.`, diff > 0 ? `${vals[i + 1]} is more than ${vals[i]}.` : diff === 0 ? `The two numbers are the same.` : `${vals[i + 1]} is less than ${vals[i]}.`, `So it is ${ans}.`], ans),
           strat('Look at the Line', [`Put your finger on the line between second ${i} and second ${i + 1}.`, slopeUp ? `The line climbs up.` : flat ? `The line is flat.` : `The line goes down.`, `That means ${slopeUp ? words[0] : flat ? words[1] : words[2]}.`], slopeUp ? words[0] : flat ? words[1] : words[2]),
@@ -661,7 +663,7 @@ export const gens: Record<string, Gen> = {
     for (let x = S; x % 2 === 0; x /= 2) maxK++
     const k = Math.min(maxK, d === 1 ? r.int(1, 2) : d === 2 ? r.int(2, 3) : r.int(3, 5))
     const ctx = r.pick([
-      { who: 'A runner', goal: 'the base', u: 'feet', step: 'runs half of the way that is left', n: 'run' },
+      { who: 'A puppy', goal: 'the ball', u: 'feet', step: 'runs half of the way that is left', n: 'run' },
       { who: 'A frog', goal: 'the pond', u: 'inches', step: 'hops half of the way that is left', n: 'hop' },
       { who: '{n}', goal: 'the shore', u: 'feet', step: 'paddles half of the way that is left', n: 'paddle' },
       { who: 'A robot', goal: 'the wall', u: 'inches', step: 'rolls half of the way that is left', n: 'move' },
@@ -670,7 +672,8 @@ export const gens: Record<string, Gen> = {
     const lefts = [S]
     for (let i = 0; i < k; i++) lefts.push(lefts[i] / 2)
     const hops = lefts.slice(1)
-    const open = `${ctx.who} is ${S} ${ctx.u} from ${ctx.goal}. Each time, it ${ctx.step}.`.replace('{n} is', '{n} is').replace(/Each time, it/, ctx.who === '{n}' ? 'Each time, he' : 'Each time, it')
+    const he = ctx.who === '{n}' ? 'he' : 'it'
+    const open = `${ctx.who} is ${S} ${ctx.u} from ${ctx.goal}. Each time, ${he} ${ctx.step}.`
     const halvings = lefts.slice(0, k).map((x, i) => `${x} ÷ 2 = ${lefts[i + 1]}`)
     const t = r.pick(d === 1 ? [0, 0, 1] : d === 2 ? [0, 1, 2] : [0, 1, 2, 2, 3])
     if (t === 3) {
@@ -679,7 +682,7 @@ export const gens: Record<string, Gen> = {
       const q = r.pick([0, 1])
       const ans = q === 0
       return {
-        prompt: q === 0 ? `${open} After ${plural(k, ctx.n)}, is there still some way left to go?` : `${open} After ${plural(k, ctx.n)}, is it all the way at ${ctx.goal}?`,
+        prompt: q === 0 ? `${open} After ${plural(k, ctx.n)}, is there still some way left to go?` : `${open} After ${plural(k, ctx.n)}, is ${he} all the way at ${ctx.goal}?`,
         visual: halvingPic(S, k, ctx.u),
         ...yn(ans, rng),
         strategies: [
@@ -715,7 +718,7 @@ export const gens: Record<string, Gen> = {
       // how far has it gone in all?
       const gone = sum(hops)
       return {
-        prompt: `${open} How far has it gone in all after ${plural(k, ctx.n)}?`.replace('How far has it', ctx.who === '{n}' ? 'How far has he' : 'How far has it'),
+        prompt: `${open} How far has ${he} gone in all after ${plural(k, ctx.n)}?`,
         visual: halvingPic(S, k, ctx.u),
         input: 'number',
         answer: S - S / 2 ** k,
@@ -731,7 +734,7 @@ export const gens: Record<string, Gen> = {
     }
     const cuts = 2 ** k
     return {
-      prompt: `${open} How far is it from ${ctx.goal} after ${plural(k, ctx.n)}?`.replace('How far is it', ctx.who === '{n}' ? 'How far is he' : 'How far is it'),
+      prompt: `${open} How far is ${he} from ${ctx.goal} after ${plural(k, ctx.n)}?`,
       visual: halvingPic(S, k, ctx.u),
       input: 'number',
       answer: lefts[k],
@@ -762,7 +765,7 @@ export const gens: Record<string, Gen> = {
       { a: 'A surfer paddles', of: 'the way to shore', done: 'has she paddled', left: 'is left' },
     ])
     const the = ctx.of.replace(/^a /, 'the ')
-    const story = `${ctx.a} ${p[0]} of ${ctx.of}, then ${p.slice(1).map((x) => `${x} more`).join(', then ')}.`
+    const story = k >= 5 ? `${ctx.a} ${p[0]} of ${ctx.of}, then ${p[1]} more, then ${p[2]} more, and so on down to ${p[k - 1]}.` : `${ctx.a} ${p[0]} of ${ctx.of}, then ${p.slice(1).map((x) => `${x} more`).join(', then ')}.`
     const eq = `${fracEq(k)} = ${Q}`
     const tops = Array.from({ length: k }, (_, i) => den / 2 ** (i + 1))
     const total = sum(tops)
@@ -787,7 +790,36 @@ export const gens: Record<string, Gen> = {
     }
     if (t === 2) {
       // true or not?
-      const q = r.int(0, 3)
+      const q = r.int(0, 4)
+      if (q === 4) {
+        // keep going forever: does the total ever pass 1?
+        let top = 0,
+          bottom = 1,
+          everOver = false
+        const totals: string[] = []
+        for (let i = 1; i <= 20; i++) {
+          top = top * 2 + 1
+          bottom *= 2
+          if (top > bottom) everOver = true
+          if (i <= 5) totals.push(`${top}/${bottom}`)
+        }
+        // the space left is halved each time, so it is never used up
+        let gapTop = 1,
+          gapBottom = 1
+        for (let i = 0; i < 20; i++) gapBottom *= 2
+        const roomLeft = gapTop > 0 && gapBottom > 0
+        return {
+          prompt: `${story} Each new piece is half of the one before. If this goes on and on, will the total ever go past 1 whole?`,
+          visual: sumBar(k),
+          ...yn(everOver, rng),
+          strategies: [
+            strat('Watch the Totals', [`Totals after each piece: ${totals.join(', ')}.`, `The top number is always 1 less than the bottom number.`, `So the total gets closer and closer to 1, but it does not go past it: ${yesNo(everOver)}.`], yesNo(everOver), { html: sumBar(5) }),
+            strat('Look at the Space Left', [`Each new piece fills only half of the empty space.`, `So half of the empty space is always still there. It just gets tiny.`, `There is always a little room left, so the total cannot pass 1: ${yesNo(!roomLeft)}.`], yesNo(!roomLeft)),
+          ],
+          operands: [k, den, q],
+          difficulty: d,
+        }
+      }
       const nextTotal = [total * 2 + 1, den * 2] // sum after one more piece, over 2·den
       const gapNow = [den - total, den],
         gapNext = [nextTotal[1] - nextTotal[0], nextTotal[1]]
