@@ -36,7 +36,7 @@ to a host such as Vercel with this folder as the project root.)
   fielding (quick decisions) in alternating bottom halves, scoreboard with line score, announcer, sound
   effects with a mute button, 3/6/9 innings, and a player card that shows how each stat is figured.
   A game in progress is saved after every play.
-- House rules added to keep games finite: a half inning ends after 5 runs, and a tie gets at most 2 extra innings.
+- House rules added to keep games finite: a half inning ends after 3 runs, and a tie gets at most 2 extra innings.
 - **Read-along** (`src/lib/speech.ts`, `src/components/ReadAlong.tsx`): word-by-word highlighting from the
   browser's word events, with a timed fallback; tap any word to hear it; three help levels; tapped words
   are listed in Coach's Corner.

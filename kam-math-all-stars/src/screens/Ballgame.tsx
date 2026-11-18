@@ -16,7 +16,7 @@ import AtBat, { type SwingResult } from '../game/AtBat'
 import { Fielding, Pitching, type DefenseResult } from '../game/Defense'
 import { Field, Scoreboard, type Run } from '../game/Field'
 import {
-  applyHit, applyOut, defenseKind, HIT_NAMES, hitBases, isQuick, newGame, OPPONENTS, oppHitBases, ordinal, PITCHES, resume, result, RUN_LIMIT,
+  applyHit, applyOut, defenseKind, HIT_NAMES, hitBases, isQuick, newGame, nextOpponent, oppHitBases, simHit, ordinal, PITCHES, resume, result, RUN_LIMIT,
   STADIUMS, TEAM_COLORS, TEAM_NAMES, toRecord, total, type Game, type Pitch,
 } from '../game/ballgame'
 import { makeFieldChallenge, makePitchChallenge, type FieldChallenge, type PitchChallenge } from '../game/challenges'
@@ -54,6 +54,8 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
     playKey: 0,
     sheet: false,
     tok: 0,
+    /** The announcer is setting the scene; wait before reading the challenge. */
+    leadIn: false,
   })
   const alive = useRef(true)
   const later = (fn: () => void, ms: number) => setTimeout(() => alive.current && fn(), ms)
@@ -84,7 +86,7 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
   const f = S()
   if (!loaded) return <div className="screen" />
   if (!g) {
-    const opp = OPPONENTS[getState().games.length % OPPONENTS.length]
+    const opp = nextOpponent(getState().games)
     const teamName = f.teamName || TEAM_NAMES[0]
     return (
       <div className="screen" data-testid="game-setup">
@@ -173,6 +175,24 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
   }
   function startDefense() {
     const kind = defenseKind(g!)
+    // Sometimes their batter gets on base by himself, so Kam's play has something riding on it.
+    const sim = simHit(g!)
+    u.leadIn = false
+    if (sim) {
+      const before = [0, ...g!.bases.flatMap((on, i) => (on ? [i + 1] : []))]
+      const runs = applyHit(g!, sim, false, true)
+      u.runs = before.map((from) => ({ from, to: Math.min(4, from + sim) }))
+      u.playKey++
+      sfx.crack()
+      later(() => {
+        u.runs = null
+        rerender()
+      }, 450 * sim + 500)
+      u.leadIn = true
+      announce(`The ${g!.opp.name} batter hits a ${HIT_NAMES[sim]}.${runs ? ` ${runs === 1 ? 'A run scores' : `${runs} runs score`}.` : ''} ${kind === 'pitching' ? 'Now strike out the next one' : 'Now make the play'}, ${f.name}!`)
+      save()
+      if (g!.phase !== 'defense') return
+    }
     u.turn = kind === 'pitching' ? { kind, c: makePitchChallenge(U, g!.opp.rating) } : { kind, c: makeFieldChallenge(U, g!.opp.rating) }
   }
   function finish() {
@@ -370,9 +390,9 @@ export default function Ballgame({ fresh, onHome, onCard }: { fresh: boolean; on
       />
     )
   } else if (u.turn.kind === 'pitching') {
-    panel = <Pitching key={g.def.chances} c={u.turn.c} onBall={(hint) => announce(`${pickFresh(BALL_LINES)} ${hint}`)} onDone={onDefense} />
+    panel = <Pitching key={g.def.chances} delay={u.leadIn ? 5200 : 700} c={u.turn.c} onBall={(hint) => announce(`${pickFresh(BALL_LINES)} ${hint}`)} onDone={onDefense} />
   } else {
-    panel = <Fielding key={g.def.chances} c={u.turn.c} onDone={onDefense} />
+    panel = <Fielding key={g.def.chances} delay={u.leadIn ? 5200 : 700} c={u.turn.c} onDone={onDefense} />
   }
 
   return (

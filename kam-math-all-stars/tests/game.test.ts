@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyHit, applyOut, defenseKind, fmtAvg, hitBases, isQuick, newGame, oppHitBases, ordinal, playerCard, resume, result, RUN_LIMIT, toRecord, total, OPPONENTS, type Game } from '../src/game/ballgame'
+import { simHit, nextOpponent, applyHit, applyOut, defenseKind, fmtAvg, hitBases, isQuick, newGame, oppHitBases, ordinal, playerCard, resume, result, RUN_LIMIT, toRecord, total, OPPONENTS, type Game } from '../src/game/ballgame'
 import { checkPitch, makeFieldChallenge, makePitchChallenge, pitchHint } from '../src/game/challenges'
 import { makeProblem, TOP } from '../src/engine/generate'
 import { mulberry32, calc } from '../src/engine/util'
@@ -76,7 +76,7 @@ describe('hits and baserunning', () => {
     expect(fmtAvg(0.75)).toBe('.750')
     expect(fmtAvg(1)).toBe('1.000')
     expect(oppHitBases(1)).toBe(1)
-    expect(oppHitBases(5)).toBe(2)
+    expect(oppHitBases(5)).toBeGreaterThanOrEqual(3)
   })
 })
 
@@ -91,6 +91,7 @@ describe('whole games', () => {
       while (g.phase !== 'final') {
         if (++steps > 2000) throw new Error('game never ended')
         if (g.phase === 'break') resume(g)
+        else if (g.half === 'bottom' && simHit(g, rng)) { const lead = total(g.us) - total(g.them); const n = simHit(g, () => 0) || 1; if (g.inning >= g.innings) expect(lead).toBeGreaterThanOrEqual(3); applyHit(g, n, false, true); if ((g.phase as string) === 'final' && g.ended === 'walkoff') throw new Error('walk-off from a hit Kam could not stop') }
         else if (rng() < skill) g.half === 'top' ? applyHit(g, 1 + Math.floor(rng() * 4), rng() < 0.5) : applyOut(g)
         else g.half === 'top' ? applyOut(g) : applyHit(g, oppHitBases(g.opp.rating, rng))
         if ((g.phase as string) !== 'final' && (g.outs > 2 || g.halfRuns >= RUN_LIMIT)) throw new Error('half did not end')
@@ -113,6 +114,51 @@ describe('whole games', () => {
     expect(c).toMatchObject({ games: 1, w: 1, ab: 8, h: 4, first: 2, hr: 2, tb: 12 })
     expect(c.avg).toBe(0.25)
     expect(c.slg).toBe(1.5)
+  })
+})
+
+describe('game balance', () => {
+  const play = (skill: number, rating: number, rng: () => number) => {
+    const g = newGame({ id: 'g', ts: 1, innings: 3, team: { name: 'A', color: '#c00' }, stadium: 'sandlot', opp: OPPONENTS.find((o) => o.rating === rating)! })
+    while (g.phase !== 'final') {
+      if (g.phase === 'break') { resume(g); continue }
+      if (g.half === 'top') {
+        // a mix of pitches; harder pitches are missed more often
+        const pitch = Math.floor(rng() * 4)
+        const pHit = skill - pitch * 0.08
+        if (rng() < pHit) applyHit(g, pitch + 1, true)
+        else if (rng() < pHit) applyHit(g, Math.max(1, pitch), false)
+        else applyOut(g)
+      } else {
+        const s = simHit(g, rng)
+        if (s) { applyHit(g, s, false, true); continue }
+        rng() < skill ? applyOut(g) : applyHit(g, oppHitBases(g.opp.rating, rng))
+      }
+    }
+    return g
+  }
+  it('a perfect game on defense against the easiest teams is a shutout', () => {
+    const rng = mulberry32(1)
+    for (let i = 0; i < 300; i++) expect(total(play(1, 1, rng).them)).toBe(0)
+  })
+  it('he never loses without missing', () => {
+    const rng = mulberry32(2)
+    for (let i = 0; i < 2000; i++) expect(result(play(1, 1 + (i % 5), rng))).toBe('W')
+  })
+  it('at about 80% he wins most games, and tougher teams keep it closer', () => {
+    const rng = mulberry32(3)
+    const rate = (rating: number) => { let w = 0, margin = 0; for (let i = 0; i < 1500; i++) { const g = play(0.8, rating, rng); if (result(g) === 'W') w++; margin += total(g.us) - total(g.them) } return [w / 1500, margin / 1500] }
+    const [easyW, easyM] = rate(1), [hardW, hardM] = rate(5)
+    expect(easyW).toBeGreaterThan(0.85)
+    expect(hardW).toBeGreaterThan(0.6)
+    expect(hardW).toBeLessThan(easyW)
+    expect(hardM).toBeLessThan(easyM)
+  })
+  it('wins move him up the ladder, losses move him back', () => {
+    expect(nextOpponent([]).rating).toBe(1)
+    expect(nextOpponent([{ result: 'W' }, { result: 'W' }]).name).toBe(OPPONENTS[2].name)
+    expect(nextOpponent([{ result: 'W' }, { result: 'L' }, { result: 'L' }]).name).toBe(OPPONENTS[0].name)
+    expect(nextOpponent(Array(30).fill({ result: 'W' })).rating).toBe(5)
   })
 })
 

@@ -9,7 +9,7 @@ export const PITCHES: Record<Pitch, { label: string; icon: string; bases: number
 }
 export const HIT_NAMES = ['', 'single', 'double', 'triple', 'home run']
 /** Youth-league rule: a half inning ends after this many runs, so no inning goes on forever. */
-export const RUN_LIMIT = 5
+export const RUN_LIMIT = 3
 const MAX_EXTRA = 2
 
 export interface Team {
@@ -63,6 +63,8 @@ export interface Game {
   /** Defense chances and outs made. */
   def: { chances: number; outs: number }
   themHits: number
+  /** Hits the other team got on its own this half (not from a miss by Kam). */
+  halfSim?: number
   /** Why the last half ended, for the announcer. */
   ended?: 'outs' | 'limit' | 'walkoff'
 }
@@ -123,6 +125,7 @@ function endHalf(g: Game, why: 'outs' | 'limit') {
   g.outs = 0
   g.bases = [false, false, false]
   g.halfRuns = 0
+  g.halfSim = 0
   const last = g.inning >= g.innings
   if (g.half === 'top') {
     // The home team does not bat in the last inning if it is already ahead.
@@ -139,7 +142,7 @@ function endHalf(g: Game, why: 'outs' | 'limit') {
 }
 
 /** A hit for whoever is batting. Returns runs scored on the play. */
-export function applyHit(g: Game, n: number, firstSwing = false): number {
+export function applyHit(g: Game, n: number, firstSwing = false, sim = false): number {
   const runs = advance(g, n)
   const line = g.half === 'top' ? g.us : g.them
   line[line.length - 1] += runs
@@ -153,7 +156,8 @@ export function applyHit(g: Game, n: number, firstSwing = false): number {
     if (n === 4) g.bat.hr++
   } else {
     g.themHits++
-    g.def.chances++
+    if (sim) g.halfSim = (g.halfSim || 0) + 1
+    else g.def.chances++
     // Walk-off: the home team takes the lead in the last inning.
     if (g.inning >= g.innings && total(g.them) > total(g.us)) {
       g.ended = 'walkoff'
@@ -185,9 +189,46 @@ export function resume(g: Game) {
 
 export const result = (g: Game): 'W' | 'L' | 'T' => (total(g.us) > total(g.them) ? 'W' : total(g.us) < total(g.them) ? 'L' : 'T')
 
-/** How hard the other team hits when Kam misses on defense. */
+/**
+ * Game balance: before one of Kam's defense plays, the other team's batter may get a hit on his own.
+ * This is what makes it a contest: Kam scores a lot, so good teams have to score too.
+ * - Tougher teams do it more often, and a little more when Kam is far ahead (less when he is behind).
+ * - The two easiest teams get at most 2 a half; the very easiest only singles, so it cannot score unless Kam misses.
+ * - In the last inning it only happens while Kam leads by 3 or more, and only singles:
+ *   he can never be tied or beaten at the end without a miss of his own.
+ * Returns the bases of the hit, or 0 for no hit.
+ */
+export function simHit(g: Game, rng: () => number = Math.random): number {
+  const r = g.opp.rating
+  const cap = r <= 2 ? 2 : r + 1
+  if (g.half !== 'bottom' || (g.halfSim || 0) >= cap) return 0
+  const lead = total(g.us) - total(g.them)
+  const last = g.inning >= g.innings
+  if (last && lead < 3) return 0
+  let p = 0.14 + 0.15 * r
+  if (lead >= 4) p += 0.15
+  else if (lead < 0) p *= 0.4
+  if (rng() >= p) return 0
+  return !last && r >= 3 && rng() < 0.15 * (r - 1) ? 2 : 1
+}
+
+/**
+ * Which team he plays next: a win moves him up to a tougher team, a loss moves him back to an easier one.
+ */
+export function nextOpponent(games: { result: 'W' | 'L' | 'T' }[]): Opponent {
+  let i = 0
+  for (const g of games) i = Math.max(0, Math.min(OPPONENTS.length - 1, i + (g.result === 'W' ? 1 : g.result === 'L' ? -1 : 0)))
+  return OPPONENTS[i]
+}
+
+/** How hard the other team hits when Kam misses on defense. Tough teams make a miss count. */
 export function oppHitBases(rating: number, rng: () => number = Math.random): number {
-  return rating >= 5 ? 2 : rating >= 3 && rng() < 0.4 ? 2 : 1
+  const r = rng()
+  if (rating <= 1) return 1
+  if (rating === 2) return r < 0.3 ? 2 : 1
+  if (rating === 3) return r < 0.6 ? 2 : 1
+  if (rating === 4) return r < 0.5 ? 3 : 2
+  return r < 0.5 ? 4 : 3
 }
 
 /** Finished-game summary kept for the player card and standings. */

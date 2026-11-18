@@ -16,23 +16,24 @@ export interface DefenseResult {
 }
 const e2e = typeof window !== 'undefined' && !!(window as unknown as { __E2E__?: boolean }).__E2E__
 
-function useAutoRead(prompt: string) {
+function useAutoRead(prompt: string, delay: number) {
   useEffect(() => {
     const lvl = S().readLevel || 1
     if (lvl === 3) return
-    const t = setTimeout(() => speak(lvl === 2 ? firstSentence(prompt) : prompt, { id: 'prompt' }), 700)
+    const t = setTimeout(() => speak(lvl === 2 ? firstSentence(prompt) : prompt, { id: 'prompt' }), delay)
     return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt])
 }
 
 /** Pitching: build a problem whose answer lands in the strike zone. One "ball" is allowed. */
-export function Pitching({ c, onBall, onDone }: { c: PitchChallenge; onBall: (hint: string) => void; onDone: (r: DefenseResult) => void }) {
+export function Pitching({ c, delay = 700, onBall, onDone }: { c: PitchChallenge; delay?: number; onBall: (hint: string) => void; onDone: (r: DefenseResult) => void }) {
   const [nums, setNums] = useState(['', ''])
   const [slot, setSlot] = useState(0)
   const [locked, setLocked] = useState(false)
   const s = useRef({ tries: 0, t0: Date.now() })
   const text = `${c.prompt}${c.rule ? ' ' + c.rule : ''}`
-  useAutoRead(text)
+  useAutoRead(text, delay)
 
   const pitch = () => {
     if (locked || nums[0] === '' || nums[1] === '') return
@@ -98,10 +99,10 @@ export function Pitching({ c, onBall, onDone }: { c: PitchChallenge; onBall: (hi
 }
 
 /** Fielding: one quick decision with big answer buttons. */
-export function Fielding({ c, onDone }: { c: FieldChallenge; onDone: (r: DefenseResult) => void }) {
+export function Fielding({ c, delay = 700, onDone }: { c: FieldChallenge; delay?: number; onDone: (r: DefenseResult) => void }) {
   const [picked, setPicked] = useState(-1)
   const t0 = useRef(Date.now())
-  useAutoRead(c.prompt)
+  useAutoRead(c.prompt, delay)
   return (
     <div className="col" data-testid="fielding" {...(e2e ? { 'data-answer': c.answer } : {})}>
       <div className="card prob">

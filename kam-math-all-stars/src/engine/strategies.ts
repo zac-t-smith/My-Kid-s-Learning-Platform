@@ -180,6 +180,12 @@ function multStrats(p: Problem): Strategy[] {
         steps: [`${a} × ${b} is the same as ${b} × ${a}`, `Count by ${a}s instead: ${skipList(a, b)}`, `Both ways it's ${ans}`],
         result: sum(Array.from({ length: b }, () => a)),
       })
+    if (out.length < 2 && a > 1)
+      out.push({
+        name: 'Build From a Fact You Know',
+        steps: [`Start with ${a - 1} × ${b} = ${(a - 1) * b}`, `Add one more group of ${b}: ${(a - 1) * b} + ${b} = ${ans}`],
+        result: (a - 1) * b + b,
+      })
     return out
   }
   const A = pieces(a),
@@ -204,6 +210,27 @@ function multStrats(p: Problem): Strategy[] {
       steps: [`${a} is close to ${r}`, `${r} × ${b} = ${fmtN(r * b)}`, `That's ${d} extra group${d > 1 ? 's' : ''} of ${b}: ${d} × ${b} = ${d * b}`, `${fmtN(r * b)} − ${d * b} = ${fmtN(ans)}`],
       result: r * b - d * b,
     })
+  }
+  if (out.length < 2) {
+    if (b < 10) {
+      const b1 = Math.floor(b / 2),
+        b2 = b - b1
+      out.push({
+        name: 'Split the Other Number',
+        steps: [`${b} is ${b1} + ${b2}`, `${fmtN(a)} × ${b1} = ${fmtN(a * b1)}`, `${fmtN(a)} × ${b2} = ${fmtN(a * b2)}`, `${fmtN(a * b1)} + ${fmtN(a * b2)} = ${fmtN(ans)}`],
+        result: a * b1 + a * b2,
+      })
+    } else {
+      const t = b - (b % 10),
+        o = b % 10
+      out.push({
+        name: 'Row by Row',
+        steps: o
+          ? [`${fmtN(b)} is ${fmtN(t)} + ${o}`, `${fmtN(a)} × ${fmtN(t)} = ${fmtN(a * t)}`, `${fmtN(a)} × ${o} = ${fmtN(a * o)}`, `${fmtN(a * t)} + ${fmtN(a * o)} = ${fmtN(ans)}`]
+          : [`${fmtN(b)} is ${b / 10} tens`, `${fmtN(a)} × ${b / 10} = ${fmtN((a * b) / 10)}`, `Now times 10: ${fmtN((a * b) / 10)} × 10 = ${fmtN(ans)}`],
+        result: a * t + a * o,
+      })
+    }
   }
   return out
 }
@@ -260,6 +287,19 @@ function twoStrats(p: Problem): Strategy[] {
       result: a + net,
     })
   }
+  if (op === op2) {
+    out.push({
+      name: 'Combine First',
+      steps: [
+        `Both steps ${op === '+' ? 'add' : 'take away'}. Put them together first.`,
+        `${b} + ${c} = ${b + c}`,
+        `${a} ${sym(op)} ${b + c} = ${ans}`,
+      ],
+      result: op === '+' ? a + (b + c) : a - (b + c),
+    })
+  }
+  if (out.length < 2)
+    out.push({ name: 'Check It', steps: [`Work backwards from ${ans} to check.`, `${ans} ${sym(op2 === '+' ? '-' : '+')} ${c} = ${m}`, `${m} ${sym(op === '+' ? '-' : '+')} ${b} = ${a} ✓`], result: calc(calc(a, op, b), op2, c) })
   return out
 }
 
@@ -325,6 +365,22 @@ function missingStrats(p: Problem): Strategy[] {
     let jumps = 0
     for (let v = ans; v <= a; v += ans) jumps++
     out.push({ name: 'Think Multiply', steps: [`${a} ÷ ? = ${ans} means ${ans} × ? = ${a}`, `Count by ${ans}s: ${skipList(ans, t)}`, `That's ${t} jumps!`], result: jumps })
+  }
+  if (op === '-' && miss === 'a') {
+    const cu = countUpHops(ans, ans + b)
+    out.push({
+      name: 'Add It Back',
+      steps: [`Something minus ${fmtN(b)} left ${fmtN(ans)}. Put the ${fmtN(b)} back!`, `Start at ${fmtN(ans)}`, ...cu.lines, `The mystery number is ${fmtN(t)}`],
+      line: cu.pts,
+      result: ans + sum(cu.jumps),
+    })
+  }
+  if (op === '÷' && miss === 'a' && ans <= 12)
+    out.push({ name: 'Skip Count', steps: [`${ans} groups of ${b}. Count by ${b}s, ${ans} times:`, skipList(b, ans), `The mystery number is ${fmtN(t)}`], result: sum(Array.from({ length: ans }, () => b)) })
+  if (out.length < 2) {
+    const A = miss === 'a' ? t : a,
+      B = miss === 'b' ? t : b
+    out.push({ name: 'Try It and Check', steps: [`Put ${fmtN(t)} in for the mystery number.`, `${fmtN(A)} ${sym(op)} ${fmtN(B)} = ${fmtN(calc(A, op, B))} ✓`], result: calc(A, op, B) === ans ? t : NaN })
   }
   return out
 }
