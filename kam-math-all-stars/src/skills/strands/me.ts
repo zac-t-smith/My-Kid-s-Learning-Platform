@@ -1032,7 +1032,7 @@ export const gens: Record<string, Gen> = {
           ],
           money(toDollar + (paid - nextD)),
         ),
-        strat('All in Cents', [`$${paid / 100} is ${fmtN(paid)} cents. $${money(realCost)} is ${fmtN(realCost)} cents.`, `${fmtN(paid)} − ${fmtN(realCost)} = ${fmtN(paid - realCost)}`, `${paid - realCost} cents is $${money(paid - realCost)}`], money(paid - realCost)),
+        strat('All in Cents', [`$${paid / 100} is ${fmtN(paid)} cents. $${money(realCost)} is ${fmtN(realCost)} cents.`, `${fmtN(paid)} − ${fmtN(realCost)} = ${fmtN(paid - realCost)}`, `${fmtN(paid - realCost)} cents is $${money(paid - realCost)}`], money(paid - realCost)),
       ],
       // took dollars from dollars and cents from 100 without trading a dollar (1 dollar too many)
       distractors: decWrongs(ans, [money((paid / 100 - cd) * 100 + (100 - cc)), money((paid / 100 - cd) * 100 + cc), `${ch}`, money(Math.max(5, ch - 10))], money(ch + 10)),
@@ -1341,7 +1341,7 @@ export const gens: Record<string, Gen> = {
         answer: a - b,
         strategies: [
           strat('Find Each, Then Take Away', [`${labels[hiI]}: ${say(hv[hiI])} ${hv[hiI] === 2 ? pic : pics} is ${a}.`, `${labels[loI]}: ${say(hv[loI])} ${hv[loI] === 2 ? pic : pics} is ${b}.`, `${a} − ${b} = ${a - b}`], a - b),
-          strat(`Just the Extra ${bars ? 'Steps' : 'Balls'}`, [`${labels[hiI]} has ${say(e)} more ${e === 2 ? pic : pics} than ${labels[loI]}.`, `Each ${pic} is ${k}.`, ...ts], tv),
+          strat(`Just the Extra ${bars ? 'Steps' : 'Balls'}`, [e === 1 ? `${labels[hiI]} has half a ${pic} more than ${labels[loI]}.` : `${labels[hiI]} has ${say(e)} more ${e === 2 ? pic : pics} than ${labels[loI]}.`, `Each ${pic} is ${k}.`, ...ts], tv),
         ],
         distractors: wrongs(a - b, [Math.ceil(e / 2), a + b, a, a - b + k]),
         ...common,
@@ -1381,7 +1381,7 @@ export const gens: Record<string, Gen> = {
         answer: level,
         unit: 'mL',
         strategies: [
-          strat('Count Up by 100s', [`Start at the bottom. Count each line by 100s up to the water: ${list(skips(100, full))}.`, ...(level % 100 ? [`The water is halfway to the next line. Half of 100 is 50.`, `${full * 100} + 50 = ${full * 100 + 50}`] : [`The water stops right on that line.`])], full * 100 + (level % 100 ? 50 : 0)),
+          strat('Count Up by 100s', [`Start at the bottom. Count each line by 100s up to where the cup is filled: ${list(skips(100, full))}.`, ...(level % 100 ? [`The cup is filled halfway to the next line. Half of 100 is 50.`, `${full * 100} + 50 = ${full * 100 + 50}`] : [`It stops right on that line.`])], full * 100 + (level % 100 ? 50 : 0)),
           strat('Come Down From the Top', [`The top line is 1,000 mL.`, `The empty part is ${fmtN(empty)} mL. Count the empty lines down from the top to check.`, `1,000 − ${empty} = ${1000 - empty}`], 1000 - empty),
         ],
         // counted lines as 1 each; read the line above or below
