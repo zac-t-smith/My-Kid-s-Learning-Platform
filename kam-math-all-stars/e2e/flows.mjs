@@ -235,7 +235,9 @@ try {
         await page.getByTestId('play').waitFor()
         for (let i = 0; i < 3; i++) {
           await page.getByTestId('item').waitFor()
+          if (i === 0 && process.env.SHOTS) { await page.waitForTimeout(250); await page.screenshot({ path: `e2e/shots/skills/${id}.png` }) }
           await page.getByRole('button', { name: /Ways to solve/ }).click()
+          if (i === 0 && process.env.SHOTS) { await page.waitForTimeout(900); await page.screenshot({ path: `e2e/shots/skills/${id}.ways.png` }) }
           await page.getByTestId('sheet').waitFor()
           await page.getByRole('button', { name: 'Close', exact: true }).click()
           kinds.add(await answer(page))
