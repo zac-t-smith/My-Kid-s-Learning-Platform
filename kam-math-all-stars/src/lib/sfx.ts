@@ -35,7 +35,61 @@ function tone(f: number, dur: number, when = 0, type: OscillatorType = 'sine', v
     /* ignore */
   }
 }
+/** A burst of filtered noise: bat cracks, crowd swells, pitch whooshes. */
+function noise(dur: number, when: number, freq: number, vol: number, shape: 'hit' | 'swell') {
+  const c = unlockAudio()
+  if (!c || !S().sfx) return
+  try {
+    const len = Math.floor(c.sampleRate * dur)
+    const buf = c.createBuffer(1, len, c.sampleRate)
+    const d = buf.getChannelData(0)
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1
+    const src = c.createBufferSource()
+    src.buffer = buf
+    const f = c.createBiquadFilter()
+    f.type = 'bandpass'
+    f.frequency.value = freq
+    f.Q.value = shape === 'hit' ? 1.2 : 0.6
+    const g = c.createGain()
+    const t = c.currentTime + when
+    if (shape === 'hit') {
+      g.gain.setValueAtTime(vol, t)
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur)
+    } else {
+      g.gain.setValueAtTime(0.001, t)
+      g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.3)
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur)
+    }
+    src.connect(f)
+    f.connect(g)
+    g.connect(c.destination)
+    src.start(t)
+    src.stop(t + dur + 0.05)
+  } catch {
+    /* ignore */
+  }
+}
 export const sfx = {
+  /** Bat meets ball. */
+  crack() {
+    noise(0.09, 0, 1800, 0.5, 'hit')
+    tone(180, 0.08, 0, 'square', 0.12)
+  },
+  /** The crowd roars; bigger hits roar longer. */
+  crowd(size = 1) {
+    noise(0.9 + size * 0.45, 0.08, 900, 0.1 + size * 0.03, 'swell')
+  },
+  /** A short original ballpark-organ riff. */
+  organ() {
+    ;[392, 494, 587, 494, 587, 784].forEach((f, i) => tone(f, 0.16, i * 0.13, 'square', 0.05))
+  },
+  whoosh() {
+    noise(0.25, 0, 500, 0.12, 'swell')
+  },
+  /** Glove pop: a called strike or an out. */
+  pop() {
+    noise(0.06, 0, 700, 0.35, 'hit')
+  },
   good() {
     tone(660, 0.14)
     tone(990, 0.3, 0.1)

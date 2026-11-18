@@ -9,9 +9,11 @@ import Play, { type RoundConfig, type RoundResult } from './screens/Play'
 import Lesson from './screens/Lesson'
 import End from './screens/End'
 import Parent from './screens/Parent'
+import Ballgame from './screens/Ballgame'
+import PlayerCard from './screens/PlayerCard'
 import { ToastHost } from './components/Toast'
 
-type Screen = 'start' | 'home' | 'play' | 'end' | 'parent'
+type Screen = 'start' | 'home' | 'play' | 'end' | 'parent' | 'game' | 'card'
 interface LessonReq {
   L: number
   /** What "Let's play!" does. */
@@ -27,6 +29,7 @@ export default function App() {
   const [lesson, setLesson] = useState<LessonReq | null>(null)
   const [result, setResult] = useState<RoundResult | null>(null)
   const keyRef = useRef(0)
+  const [game, setGame] = useState({ fresh: false, key: 0, cardBack: 'home' as Screen })
   const reduce = useReducedMotion()
 
   useEffect(() => {
@@ -78,7 +81,7 @@ export default function App() {
                 onClick={() => {
                   unlockAudio()
                   loadVoices()
-                  speak(`Hey ${f.name}! Welcome to Math All-Stars. Pick a level, or take on The Climb!`)
+                  speak(`Hey ${f.name}! Welcome to Math All-Stars. Play a ball game, pick a level, or take on The Climb!`)
                   setScreen('home')
                 }}
               >
@@ -87,9 +90,16 @@ export default function App() {
               <p className="small">Turn your sound on 🔊</p>
             </div>
           ) : screen === 'home' ? (
-            <Home onPlay={(L, withLesson) => (withLesson ? setLesson({ L, after: 'round' }) : startRound({ mode: 'round', L }))} onClimb={() => startRound({ mode: 'climb', L: 0 })} onParent={() => (hush(), setScreen('parent'))} />
+            <Home onPlay={(L, withLesson) => (withLesson ? setLesson({ L, after: 'round' }) : startRound({ mode: 'round', L }))} onClimb={() => startRound({ mode: 'climb', L: 0 })} onParent={() => (hush(), setScreen('parent'))}
+              onGame={(fresh) => (hush(), setGame((x) => ({ ...x, fresh, key: x.key + 1 })), setScreen('game'))}
+              onCard={() => (hush(), setGame((x) => ({ ...x, cardBack: 'home' })), setScreen('card'))}
+            />
           ) : screen === 'end' && result ? (
             <End result={result} onLesson={(L) => setLesson({ L, after: 'round' })} onPlay={(L) => startRound({ mode: 'round', L })} onClimb={() => startRound({ mode: 'climb', L: 0 })} onHome={goHome} />
+          ) : screen === 'game' ? (
+            <Ballgame key={game.key} fresh={game.fresh} onHome={goHome} onCard={() => (hush(), setGame((x) => ({ ...x, fresh: false, cardBack: 'game' })), setScreen('card'))} />
+          ) : screen === 'card' ? (
+            <PlayerCard onBack={() => (hush(), setScreen(game.cardBack))} />
           ) : screen === 'parent' ? (
             <Parent onBack={goHome} />
           ) : null}

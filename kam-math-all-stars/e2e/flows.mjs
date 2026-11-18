@@ -63,7 +63,7 @@ await ctx.addInitScript(() => (window.__E2E__ = true))
 try {
   await test('a full 10-problem round, all first try, unlocks the next level', async () => {
     const page = await open(ctx)
-    await page.getByRole('button', { name: /^▶ Play/ }).click()
+    await page.getByRole('button', { name: /^▶ Practice/ }).click()
     // first time: the lesson plays first
     await page.getByTestId('lesson').waitFor()
     for (let i = 0; i < 8 && !(await page.getByRole('button', { name: /Let's play/ }).count()); i++) await page.getByRole('button', { name: /Next/ }).click()
@@ -83,7 +83,7 @@ try {
   await test('progress survives closing and reopening the app', async () => {
     const page = await open(ctx)
     assert.equal(await page.locator('.lvl.locked').count(), 16) // levels 1 and 2 open
-    assert.match(await page.getByRole('button', { name: /^▶ Play/ }).innerText(), /Ones Only/)
+    assert.match(await page.getByRole('button', { name: /^▶ Practice/ }).innerText(), /Ones Only/)
     await page.screenshot({ path: 'e2e/shots/home.png' })
     await page.close()
   })
@@ -236,6 +236,184 @@ try {
     assert.equal(await p2.locator('.lvl.locked').count(), 0)
     await ctx2.close()
     fs.rmSync(file)
+  })
+
+  /** Play whatever the Ballgame is showing. `skill` = chance of answering right. Returns when the game is final. */
+  async function playGame(page, skill = 0.85, stopAfterPlays = Infinity) {
+    let plays = 0
+    for (let step = 0; step < 400; step++) {
+      if (await page.getByTestId('game-final').count()) return plays
+      const nextBtn = page.locator('.gright > .btn')
+      if (await page.getByTestId('sheet').count()) await page.getByRole('button', { name: 'Close', exact: true }).click()
+      else if (await nextBtn.count()) {
+        await nextBtn.click()
+        if (++plays >= stopAfterPlays) return plays
+      } else if (await page.getByTestId('game-break').count()) await page.locator('[data-testid=game-break] .btn').click()
+      else if (await page.getByTestId('pitch-pick').count()) await page.locator(`[data-pitch=${['fastball', 'curveball', 'slider', 'meatball'][step % 4]}]`).click()
+      else if (await page.getByTestId('atbat').count()) {
+        const ab = page.getByTestId('atbat')
+        const target = Number(await ab.getAttribute('data-target'))
+        const truth = (await ab.getAttribute('data-agree')) === 'true'
+        const right = Math.random() < skill
+        for (let swing = 0; swing < 2 && !(await nextBtn.count()); swing++) {
+          if (await page.locator('.agree').count()) {
+            await page.getByRole('button', { name: (right ? truth : !truth) ? /Agree/ : /Disagree/ }).first().click()
+            if (right && !truth) { await pinDigits(page, target); await page.getByRole('button', { name: 'Swing' }).click() }
+          } else {
+            await page.waitForTimeout(swing ? 1000 : 0)
+            await pinDigits(page, right ? target : target + 1)
+            await page.getByRole('button', { name: 'Swing' }).click()
+          }
+          if (right) break
+        }
+      } else if (await page.getByTestId('pitching').count()) {
+        const el = page.getByTestId('pitching')
+        const right = Math.random() < skill
+        const a = right ? await el.getAttribute('data-a') : '99', b = right ? await el.getAttribute('data-b') : '99'
+        for (let t = 0; t < 2 && !(await nextBtn.count()); t++) {
+          for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Delete' }).click()
+          await page.getByRole('button', { name: 'First number' }).click()
+          await pinDigits(page, a)
+          await page.getByRole('button', { name: 'Second number' }).click()
+          for (let i = 0; i < 3; i++) await page.getByRole('button', { name: 'Delete' }).click()
+          await pinDigits(page, b)
+          await page.getByRole('button', { name: 'Pitch', exact: true }).click()
+        }
+      } else if (await page.getByTestId('fielding').count()) {
+        const el = page.getByTestId('fielding')
+        const ans = Number(await el.getAttribute('data-answer'))
+        const n = await page.locator('.choices button').count()
+        await page.locator('.choices button').nth(Math.random() < skill ? ans : (ans + 1) % n).click()
+      }
+      await page.waitForTimeout(40)
+    }
+    throw new Error('game did not finish: dead end?')
+  }
+  const pinDigits = async (page, n) => { for (const d of String(n)) await page.locator('.pad button', { hasText: new RegExp(`^${d}$`) }).click() }
+
+  await test('Ballgame: a full 3-inning game plays start to finish, then shows on the player card', async () => {
+    const c = await browser.newContext(ipad)
+    await c.addInitScript(() => (window.__E2E__ = true))
+    const page = await open(c)
+    await page.getByRole('button', { name: /Play ball!/ }).click()
+    await page.getByTestId('game-setup').waitFor()
+    await page.getByRole('button', { name: 'Sluggers' }).click()
+    await page.getByRole('button', { name: /Sunset Park/ }).click()
+    await page.screenshot({ path: 'e2e/shots/game-setup.png' })
+    await page.getByRole('button', { name: /Play ball!/ }).click()
+    await page.getByTestId('pitch-pick').waitFor()
+    await page.screenshot({ path: 'e2e/shots/game-pick.png' })
+    // play a few plays, leave, and come back: the game is still there
+    await playGame(page, 0.85, 4)
+    const score = await page.getByTestId('scoreboard').innerText()
+    await page.screenshot({ path: 'e2e/shots/game-play.png' })
+    await page.reload()
+    await page.getByRole('button', { name: /Tap to Play/ }).click()
+    assert.match(await page.getByTestId('ballgame-card').innerText(), /Your game is waiting/)
+    await page.getByRole('button', { name: /Keep playing/ }).click()
+    await page.getByTestId('ballgame').waitFor()
+    assert.equal(await page.getByTestId('scoreboard').innerText(), score)
+    await playGame(page, 0.85)
+    await page.getByTestId('game-final').waitFor()
+    await page.waitForTimeout(600)
+    await page.screenshot({ path: 'e2e/shots/game-final.png' })
+    const board = await page.getByTestId('scoreboard').innerText()
+    assert.match(board, /Final/)
+    assert.match(board, /Kam's Sluggers/)
+    await page.getByRole('button', { name: /My player card/ }).click()
+    await page.getByTestId('card').waitFor()
+    assert.match(await page.getByTestId('card').innerText(), /1 game/)
+    await page.getByRole('button', { name: 'How is this figured?' }).first().click()
+    assert.match(await page.locator('.pc-how').innerText(), /first-swing hits in \d+ at-bats/)
+    await page.screenshot({ path: 'e2e/shots/card.png' })
+    await c.close()
+  })
+
+  await test('Ballgame: games with lots of misses, and 6-inning games, also always finish', async () => {
+    for (const [skill, innings] of [[0.15, 3], [0.6, 6]]) {
+      const c = await browser.newContext(ipad)
+      await c.addInitScript(() => (window.__E2E__ = true))
+      const page = await open(c)
+      if (innings !== 3) {
+        await page.getByRole('button', { name: /Coach's Corner/ }).click()
+        await pin(page, '14141414')
+        await page.locator('#pInn').selectOption(String(innings))
+        await page.getByRole('button', { name: 'Back', exact: true }).click()
+      }
+      await page.getByRole('button', { name: /Play ball!/ }).click()
+      await page.getByRole('button', { name: /Play ball!/ }).click()
+      await playGame(page, skill)
+      const cols = await page.locator('.score thead th').count()
+      assert.ok(cols >= innings + 3, `line score has ${innings} innings`)
+      await c.close()
+    }
+  })
+
+  await test('Read-along: the highlighted word follows the voice, with and without browser word events', async () => {
+    for (const boundaries of [true, false]) {
+      const c = await browser.newContext(ipad)
+      await c.addInitScript((boundaries) => {
+        window.__E2E__ = true
+        window.__spoken = []
+        // A stand-in voice: speaks one word every 160ms and (optionally) reports each word like Safari does.
+        class U { constructor(t) { this.text = t; this.rate = 1 } }
+        const synth = {
+          getVoices: () => [], cancel() { clearInterval(this.t) }, onvoiceschanged: null,
+          speak(u) {
+            clearInterval(this.t)
+            const words = [...u.text.matchAll(/\S+/g)]
+            let i = 0
+            setTimeout(() => u.onstart && u.onstart({}), 10)
+            this.t = setInterval(() => {
+              if (i >= words.length) { clearInterval(this.t); u.onend && u.onend({}); return }
+              if (boundaries) {
+                u.onboundary && u.onboundary({ name: 'word', charIndex: words[i].index })
+                const said = words[i][0]
+                // look at the screen a moment later (40ms), well before the next word (160ms)
+                setTimeout(() => {
+                  const on = document.querySelector('.caption .w.on')
+                  if (document.querySelector('.caption')) window.__spoken.push([said, on ? on.textContent : null])
+                }, 40)
+              }
+              i++
+            }, boundaries ? 160 : 400)
+          },
+        }
+        Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true })
+        window.SpeechSynthesisUtterance = U
+      }, boundaries)
+      const page = await open(c)
+      await page.getByRole('button', { name: 'Watch lesson: Tens Jumps' }).click()
+      await page.getByTestId('lesson').waitFor()
+      const caption = (await page.locator('.caption').innerText()).split(/\s+/)
+      if (boundaries) {
+        await page.waitForFunction((n) => window.__spoken.length >= n, caption.length, { timeout: 15000 })
+        const spoken = await page.evaluate(() => window.__spoken)
+        const first = spoken.slice(0, caption.length)
+        first.forEach(([said, lit], i) => assert.equal(lit, caption[i], `word ${i}: voice said "${said}" but "${lit}" was lit`))
+      } else {
+        // no word events: the timed fallback still walks every word in order
+        const seen = []
+        const text0 = await page.locator('.caption').innerText()
+        for (let i = 0; i < 400 && seen.length < caption.length && (await page.locator('.caption').innerText()) === text0; i++) {
+          const w = await page.evaluate(() => { const els = [...document.querySelectorAll('.caption .w')]; return els.findIndex((e) => e.classList.contains('on')) })
+          if (w >= 0 && seen[seen.length - 1] !== w) seen.push(w)
+          await page.waitForTimeout(40)
+        }
+        assert.ok(seen.length >= caption.length * 0.8, `fallback lit ${seen.length} of ${caption.length} words`)
+        assert.deepEqual(seen, [...seen].sort((a, b) => a - b), 'words light up in order')
+        await page.screenshot({ path: 'e2e/shots/readalong.png' })
+      }
+      // tap a word to hear it; it is counted for the parent
+      await page.getByRole('button', { name: /Pause/ }).click()
+      await page.locator('.caption .w', { hasText: /^little$/ }).click()
+      await page.locator('.caption .w', { hasText: /^little$/ }).click()
+      await page.getByRole('button', { name: 'Close lesson' }).click()
+      await page.getByRole('button', { name: /Coach's Corner/ }).click()
+      await pin(page, '14141414')
+      assert.match(await page.getByTestId('reading-card').innerText(), /little\s*×2/)
+      await c.close()
+    }
   })
 
   await test('fits a phone and an iPad in portrait with no sideways scrolling', async () => {

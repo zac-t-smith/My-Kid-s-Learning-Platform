@@ -4,6 +4,7 @@ import { LEVELS } from '../content/levels'
 import { fill, THEMES } from '../content/themes'
 import { S, update } from '../db/store'
 import { hush, speak } from '../lib/speech'
+import ReadAlong from '../components/ReadAlong'
 
 /** The lesson stage: base-ten blocks that pop in, fly away, break apart and bundle. */
 function makeStage(el: HTMLElement, later: (fn: () => void, ms: number) => void): StageApi {
@@ -92,6 +93,7 @@ export default function Lesson({ L, onGo, onClose }: { L: number; onGo: () => vo
     const s = lp.current
     const run = ++s.run
     speak(say(scenes[s.i].say), {
+      id: 'caption',
       onend: () => {
         if (lp.current.run === run && s.playing) setTimeout(() => lp.current.run === run && s.playing && nextScene(), 900)
       },
@@ -151,8 +153,8 @@ export default function Lesson({ L, onGo, onClose }: { L: number; onGo: () => vo
       <div className="card stagecard">
         <div ref={stageEl} className="stage" style={{ ['--u' as string]: UNIT[L] || '14px' }} />
       </div>
-      <div className="card caption" aria-live="polite">
-        {ui.caption}
+      <div aria-live="polite">
+        <ReadAlong id="caption" text={ui.caption} className="card caption" />
       </div>
       <div className="dots">
         {scenes.map((_, i) => (

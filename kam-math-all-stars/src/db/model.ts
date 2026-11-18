@@ -1,5 +1,6 @@
 import type { ThemeKey } from '../content/themes'
 import type { Fmt } from '../engine/types'
+import type { GameRecord, Pitch } from '../game/ballgame'
 
 /** One answered problem. The attempt log is the source of truth for all stats. */
 export interface Attempt {
@@ -8,8 +9,9 @@ export interface Attempt {
   ts: number
   /** Level the problem belongs to (18 = Super Rungs). */
   L: number
-  mode: 'round' | 'climb'
-  fmt: Fmt
+  mode: 'round' | 'climb' | 'game'
+  /** Problem format. 'pitch' and 'field' are Ballgame defense challenges. */
+  fmt: Fmt | 'pitch' | 'field'
   /** Plain-text problem, e.g. "54 − 27". */
   q: string
   target: number
@@ -21,6 +23,10 @@ export interface Attempt {
   helped: boolean
   ms: number
   device: string
+  /** Ballgame only: which game, which pitch he chose, and how many bases the hit was worth. */
+  gid?: string
+  pitch?: Pitch
+  bases?: number
   /** 0 = not yet in the cloud, 1 = uploaded. Local bookkeeping only. */
   synced: 0 | 1
 }
@@ -40,6 +46,16 @@ export interface Fields {
   /** Parent PIN check value + salt ('' = no PIN yet). */
   pin: string
   pinSalt: string
+  /** Ballgame team. */
+  teamName: string
+  teamColor: string
+  stadium: string
+  /** Innings per game: 3, 6 or 9. */
+  gameInnings: number
+  /** Read-along help: 1 = read everything, 2 = first sentence, 3 = tap to hear. */
+  readLevel: 1 | 2 | 3
+  /** How many times he tapped each word to hear it. */
+  wordTaps: Record<string, number>
   /** Attempts at or before this time were erased by the parent. */
   resetAt: number
   /** When a parent last set `unlocked` by hand or erased progress. */
@@ -64,6 +80,12 @@ export const freshFields = (): Fields => ({
   sfx: true,
   climbBest: 0,
   pin: '',
+  teamName: '',
+  teamColor: '#c62828',
+  stadium: 'sandlot',
+  gameInnings: 3,
+  readLevel: 1,
+  wordTaps: {},
   pinSalt: '',
   resetAt: 0,
   parentAt: 0,
@@ -76,4 +98,5 @@ export interface Backup {
   exportedAt: number
   profile: Profile
   attempts: Attempt[]
+  games?: GameRecord[]
 }

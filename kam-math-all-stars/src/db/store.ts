@@ -1,13 +1,15 @@
 import { useSyncExternalStore } from 'react'
 import { db, loadMeta, loadProfile, saveProfile, uuid, type Meta } from './db'
 import { derive, type Derived } from './derive'
-import { mergeAttempts, mergeProfiles } from './merge'
+import { mergeAttempts, mergeGames, mergeProfiles } from './merge'
+import type { Game, GameRecord } from '../game/ballgame'
 import { freshFields, freshProfile, type Attempt, type Backup, type Fields, type Profile } from './model'
 
 export interface State {
   ready: boolean
   profile: Profile
   attempts: Attempt[]
+  games: GameRecord[]
   derived: Derived
   sync: { configured: boolean; email: string | null; status: 'off' | 'idle' | 'syncing' | 'error' | 'offline'; lastAt: number; error?: string }
 }
@@ -16,6 +18,7 @@ let state: State = {
   ready: false,
   profile: freshProfile(),
   attempts: [],
+  games: [],
   derived: derive([]),
   sync: { configured: false, email: null, status: 'off', lastAt: 0 },
 }
@@ -46,7 +49,8 @@ export async function initStore() {
   const stored = await loadProfile()
   const profile = stored ? { fields: { ...freshFields(), ...stored.fields }, times: stored.times || {} } : await migrateV1()
   const attempts = (await db.attempts.orderBy('ts').toArray()).filter((a) => a.ts > profile.fields.resetAt)
-  set({ ready: true, profile, attempts, derived: derive(attempts) })
+  const games = (await db.games.orderBy('ts').toArray()).filter((g) => g.ts > profile.fields.resetAt)
+  set({ ready: true, profile, attempts, games, derived: derive(attempts) })
   // Ask the browser not to evict our data when the iPad gets low on space.
   try {
     void navigator.storage?.persist?.()
@@ -99,15 +103,20 @@ export function addAttempt(a: NewAttempt): Attempt {
  * Fold merged data (from a sync or an import) into this device.
  * Never drops an answer recorded while the merge was running: the result is re-unioned with what is in memory.
  */
-export async function applyMerged(profile: Profile, incoming: Attempt[]) {
+export async function applyMerged(profile: Profile, incoming: Attempt[], incomingGames: GameRecord[] = []) {
   const resetAt = profile.fields.resetAt
-  await db.transaction('rw', db.attempts, db.kv, async () => {
-    if (resetAt) await db.attempts.where('ts').belowOrEqual(resetAt).delete()
+  await db.transaction('rw', db.attempts, db.kv, db.games, async () => {
+    if (resetAt) {
+      await db.attempts.where('ts').belowOrEqual(resetAt).delete()
+      await db.games.where('ts').belowOrEqual(resetAt).delete()
+    }
+    await db.games.bulkPut(incomingGames.filter((g) => g.ts > resetAt))
     await db.attempts.bulkPut(incoming.filter((a) => a.ts > resetAt))
     await db.kv.put({ key: 'profile', value: profile })
   })
   const attempts = mergeAttempts(state.attempts, incoming, resetAt)
-  set({ profile, attempts, derived: derive(attempts) })
+  const games = mergeGames(state.games, incomingGames, resetAt)
+  set({ profile, attempts, games, derived: derive(attempts) })
 }
 
 export function setSync(patch: Partial<State['sync']>) {
@@ -128,11 +137,12 @@ export async function eraseProgress() {
     times: { ...state.profile.times, unlocked: now, current: now, seenLesson: now, climbBest: now, resetAt: now, parentAt: now },
   }
   await applyMerged(profile, [])
+  await saveLiveGame(null)
   changed()
 }
 
 export function exportBackup(): Backup {
-  return { app: 'kams-math-all-stars', version: 1, exportedAt: Date.now(), profile: state.profile, attempts: state.attempts }
+  return { app: 'kams-math-all-stars', version: 1, exportedAt: Date.now(), profile: state.profile, attempts: state.attempts, games: state.games }
 }
 
 /** Parent: merge a backup file into this device. Nothing already here is lost. */
@@ -142,7 +152,25 @@ export async function importBackup(raw: unknown): Promise<number> {
   const incoming = b.attempts.filter((a) => a && typeof a.id === 'string' && typeof a.ts === 'number' && typeof a.L === 'number').map((a) => ({ ...a, synced: 0 as const }))
   const profile = mergeProfiles(state.profile, { fields: { ...freshFields(), ...b.profile.fields }, times: b.profile.times || {} })
   const before = state.attempts.length
-  await applyMerged(profile, incoming)
+  const games = (Array.isArray(b.games) ? b.games : []).filter((g) => g && typeof g.id === 'string' && typeof g.ts === 'number').map((g) => ({ ...g, synced: 0 as const }))
+  await applyMerged(profile, incoming, games)
   changed()
   return state.attempts.length - before
+}
+
+/** A finished Ballgame, kept for the player card. */
+export function addGame(rec: GameRecord) {
+  set({ games: mergeGames(state.games, [rec]) })
+  void db.games.put(rec).then(changed)
+}
+/** The game in progress is saved after every play, so closing the app never loses it. */
+export const saveLiveGame = (g: Game | null) => (g ? db.kv.put({ key: 'liveGame', value: g }) : db.kv.delete('liveGame'))
+export const loadLiveGame = async () => (await db.kv.get('liveGame'))?.value as Game | undefined
+
+/** Count a word Kam tapped to hear (for the sight-word list in Coach's Corner). */
+export function countWordTap(word: string) {
+  const w = word.toLowerCase().replace(/[^a-z']/g, '')
+  if (w.length < 2) return
+  const taps = state.profile.fields.wordTaps || {}
+  update({ wordTaps: { ...taps, [w]: (taps[w] || 0) + 1 } })
 }

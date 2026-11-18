@@ -306,10 +306,13 @@ const FMTS: Record<number, Fmt[]> = {
 const FMT_DEFAULT: Fmt[] = ['solve', 'solve', 'solve', 'story', 'story', 'agree', 'agree', 'missing']
 
 /** Numbers + a format. The story text is added by the content layer (it needs the theme). */
-export function makeProblem(L: number, rung?: number, rng: Rng = Math.random): Problem {
+export function makeProblem(L: number, rung?: number, rng: Rng = Math.random, only?: Fmt[]): Problem {
   const pick = pickWith(rng)
   const n = genNums(L, rung, rng)
-  const p: Problem = { ...n, fmt: pick(FMTS[L] || FMT_DEFAULT), target: n.ans }
+  const all = FMTS[L] || FMT_DEFAULT
+  // `only` narrows the formats (Ballgame pitches); a level that has none of them keeps its own.
+  const allowed = only ? all.filter((f) => only.includes(f)) : all
+  const p: Problem = { ...n, fmt: pick(allowed.length ? allowed : all), target: n.ans }
   if (p.fmt === 'agree') {
     p.isTrue = rng() < 0.45
     p.shown = p.isTrue ? p.ans : wrongGuess(p, rng)

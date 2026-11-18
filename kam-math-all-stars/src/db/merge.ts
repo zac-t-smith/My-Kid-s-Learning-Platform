@@ -20,6 +20,11 @@ export function mergeProfiles(a: Profile, b: Profile): Profile {
       vb = b.fields[k] ?? out.fields[k]
     if (EARNED.includes(k) && ta >= parentAt && tb >= parentAt) {
       f[k] = Math.max(va as number, vb as number)
+    } else if (k === 'wordTaps') {
+      // per word, keep the higher count
+      const m: Record<string, number> = { ...(va as Record<string, number>) }
+      for (const [w, n] of Object.entries(vb as Record<string, number>)) m[w] = Math.max(m[w] || 0, n)
+      f[k] = m
     } else if (k === 'seenLesson') {
       const ra = a.fields.resetAt || 0,
         rb = b.fields.resetAt || 0
@@ -46,10 +51,21 @@ export function mergeAttempts(a: Attempt[], b: Attempt[], resetAt = 0): Attempt[
   return [...m.values()].sort((x, y) => x.ts - y.ts || (x.id < y.id ? -1 : 1))
 }
 
+/** Union of two game logs by id, minus anything the parent erased. */
+export function mergeGames<T extends { id: string; ts: number; synced: 0 | 1 }>(a: T[], b: T[], resetAt = 0): T[] {
+  const m = new Map<string, T>()
+  for (const x of [...a, ...b]) {
+    if (x.ts <= resetAt) continue
+    const have = m.get(x.id)
+    if (!have || (x.synced && !have.synced)) m.set(x.id, x)
+  }
+  return [...m.values()].sort((x, y) => x.ts - y.ts)
+}
+
 export function profilesEqual(a: Profile, b: Profile): boolean {
   return JSON.stringify(canon(a)) === JSON.stringify(canon(b))
 }
 function canon(p: Profile) {
   const sort = (o: object) => Object.fromEntries(Object.entries(o).sort(([x], [y]) => (x < y ? -1 : 1)))
-  return { fields: sort({ ...p.fields, seenLesson: sort(p.fields.seenLesson) }), times: sort(p.times) }
+  return { fields: sort({ ...p.fields, seenLesson: sort(p.fields.seenLesson), wordTaps: sort(p.fields.wordTaps || {}) }), times: sort(p.times) }
 }

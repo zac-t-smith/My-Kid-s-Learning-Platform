@@ -359,21 +359,3 @@ export function strategies(p: Problem): Strategy[] {
   }
   return out
 }
-
-/** Turn a step into something the voice can read. */
-export function speakable(t: string): string {
-  const FR: Record<string, [string, string]> = { 2: ['half', 'halves'], 3: ['third', 'thirds'], 4: ['fourth', 'fourths'], 5: ['fifth', 'fifths'], 10: ['tenth', 'tenths'] }
-  const NW = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
-  return t
-    .replace(/(\d+)\/(\d+)/g, (m, n, d) => (FR[d] && NW[n] ? `${NW[n]} ${FR[d][+n > 1 ? 1 : 0]}` : m))
-    .replace(/(\d),(\d{3})/g, '$1$2')
-    .replace(/(\d),(\d{3})/g, '$1$2')
-    .replace(/−/g, ' minus ')
-    .replace(/\+/g, ' plus ')
-    .replace(/×/g, ' times ')
-    .replace(/÷/g, ' divided by ')
-    .replace(/→/g, ' to ')
-    .replace(/=/g, ' equals ')
-    .replace(/\?/g, ' what number ')
-    .replace(/✓/g, '')
-}

@@ -240,7 +240,7 @@ export default function Parent({ onBack }: { onBack: () => void }) {
         <div className="card">
           <div className="lbl">Progress</div>
           <p className="note" style={{ marginTop: 0 }}>
-            🧗 Best Climb: {f.climbBest ? `Rung ${f.climbBest} (${rungName(f.climbBest - 1)})` : 'not tried yet'}
+            🧗 Best Climb: {f.climbBest ? `Rung ${f.climbBest} (${rungName(f.climbBest - 1)})` : 'not tried yet'} · ⚾ Ballgames: {st.games.length} played, {st.games.filter((x) => x.result === 'W').length} won
           </p>
           <table className="ptable">
             <thead>
@@ -290,6 +290,23 @@ export default function Parent({ onBack }: { onBack: () => void }) {
               <option value="words">Word problems, agree/disagree &amp; mystery (recommended)</option>
               <option value="all">Every problem</option>
               <option value="off">Only when he taps 🔊</option>
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="pLevel">Read-along help</label>
+            <select id="pLevel" value={f.readLevel || 1} onChange={(e) => update({ readLevel: +e.target.value as 1 | 2 | 3 })}>
+              <option value={1}>Level 1: read everything to him</option>
+              <option value={2}>Level 2: read the first sentence, he taps for the rest</option>
+              <option value={3}>Level 3: he reads; tap to hear</option>
+            </select>
+            <span className="note">Words light up as they are spoken, and he can tap any word to hear it. Move up a level as his reading grows.</span>
+          </div>
+          <div className="field">
+            <label htmlFor="pInn">Ballgame length</label>
+            <select id="pInn" value={f.gameInnings || 3} onChange={(e) => update({ gameInnings: +e.target.value })}>
+              <option value={3}>3 innings (about 10 minutes)</option>
+              <option value={6}>6 innings</option>
+              <option value={9}>9 innings</option>
             </select>
           </div>
           <div className="field">
@@ -352,6 +369,24 @@ export default function Parent({ onBack }: { onBack: () => void }) {
               Change PIN
             </button>
           </div>
+        </div>
+
+        <div className="card" data-testid="reading-card">
+          <div className="lbl">Reading: words he taps to hear</div>
+          {Object.keys(f.wordTaps || {}).length ? (
+            <div className="chips">
+              {Object.entries(f.wordTaps)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 20)
+                .map(([w, n]) => (
+                  <span key={w} className="sbtn">
+                    {w} <span className="note">×{n}</span>
+                  </span>
+                ))}
+            </div>
+          ) : (
+            <div className="note">Nothing yet. When he taps a word to hear it, it shows up here as a sight word to practice.</div>
+          )}
         </div>
 
         <CloudCard />

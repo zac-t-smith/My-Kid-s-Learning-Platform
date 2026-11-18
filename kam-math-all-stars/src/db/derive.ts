@@ -20,6 +20,9 @@ export function derive(attempts: Attempt[]): Derived {
   const recent: Record<number, number[]> = {}
   const missed: Attempt[] = []
   for (const a of attempts) {
+    if (!a.first) missed.push(a)
+    // Defense challenges are logged, but they are not practice on a level.
+    if (a.fmt === 'pitch' || a.fmt === 'field') continue
     const st = (stats[a.L] ||= { att: 0, first: 0, correct: 0, ms: 0 })
     st.att++
     if (a.first) st.first++
@@ -28,7 +31,6 @@ export function derive(attempts: Attempt[]): Derived {
     const rec = (recent[a.L] ||= [])
     rec.push(a.first ? 1 : 0)
     if (rec.length > 8) rec.shift()
-    if (!a.first) missed.push(a)
   }
   return { stats, recent, missed: missed.reverse().slice(0, 30) }
 }

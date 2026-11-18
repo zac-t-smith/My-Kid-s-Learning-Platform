@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { db } from '../db/db'
-import { mergeAttempts, mergeProfiles, profilesEqual } from '../db/merge'
+import { mergeAttempts, mergeGames, mergeProfiles, profilesEqual } from '../db/merge'
+import type { GameRecord } from '../game/ballgame'
 import { freshFields, type Attempt, type Profile } from '../db/model'
 import { applyMerged, getMeta, getState, onLocalChange, setPullCursor, setSync } from '../db/store'
 
@@ -83,6 +84,8 @@ async function run() {
     if (del.error) throw del.error
   }
 
+  const now0 = getState()
+
   // 3. Upload attempts this device has not sent yet.
   const unsent = (await db.attempts.where('synced').equals(0).toArray()).filter((a) => a.ts > resetAt)
   for (let i = 0; i < unsent.length; i += 500) {
@@ -109,12 +112,31 @@ async function run() {
     if (page.data.length < 1000) break
   }
 
+  // 4b. Finished games: small table, so send what is new and fetch them all.
+  if (resetAt) {
+    const del = await supabase.from('games').delete().eq('family_id', user.id).lte('ts', resetAt)
+    if (del.error) throw del.error
+  }
+  const unsentGames = (await db.games.where('synced').equals(0).toArray()).filter((g) => g.ts > resetAt)
+  if (unsentGames.length) {
+    const up = await supabase.from('games').upsert(unsentGames.map(({ synced: _s, ...data }) => ({ id: data.id, family_id: user.id, ts: data.ts, data })), { onConflict: 'id', ignoreDuplicates: true })
+    if (up.error) throw up.error
+  }
+  const remoteGames = await supabase.from('games').select('id, ts, data').eq('family_id', user.id)
+  if (remoteGames.error) throw remoteGames.error
+  const games = mergeGames(
+    unsentGames.map((g) => ({ ...g, synced: 1 as const })),
+    (remoteGames.data as { id: string; ts: number; data: Omit<GameRecord, 'synced'> }[]).map((r) => ({ ...r.data, id: r.id, ts: Number(r.ts), synced: 1 as const })),
+    resetAt,
+  )
+  const newGames = games.some((g) => !now0.games.find((x) => x.id === g.id && x.synced))
+
   // 5. Merge everything into the device (union of attempt history).
   const now = getState()
   const mergedNow = mergeProfiles(now.profile, merged)
-  if (pulled.length || unsent.length || !profilesEqual(mergedNow, now.profile)) {
+  if (pulled.length || unsent.length || newGames || !profilesEqual(mergedNow, now.profile)) {
     const sent = unsent.map((a) => ({ ...a, synced: 1 as const }))
-    await applyMerged(mergedNow, mergeAttempts(sent, pulled, resetAt))
+    await applyMerged(mergedNow, mergeAttempts(sent, pulled, resetAt), games)
   }
   if (newest !== cursor) await setPullCursor(newest)
   setSync({ status: 'idle', lastAt: Date.now() })

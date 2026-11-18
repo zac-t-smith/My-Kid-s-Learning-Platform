@@ -8,7 +8,8 @@ import { makeProblem } from '../engine/generate'
 import type { Problem } from '../engine/types'
 import { fmtN } from '../engine/util'
 import { sfx } from '../lib/sfx'
-import { hush, speak } from '../lib/speech'
+import { firstSentence, hush, speak } from '../lib/speech'
+import ReadAlong from '../components/ReadAlong'
 import { confetti } from '../components/confetti'
 import WaysSheet from '../components/WaysSheet'
 
@@ -69,6 +70,14 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
   /** setTimeout that does nothing once the round is gone. */
   const later = (fn: () => void, ms: number) => setTimeout(() => alive.current && fn(), ms)
 
+  /** Read the problem aloud. Word problems are highlighted word by word. Auto-reading follows the read-along level. */
+  function readProblem(p: Problem, asked: boolean) {
+    const lvl = asked ? 1 : S().readLevel || 1
+    if (lvl === 3) return
+    const text = speechFor(p)
+    speak(lvl === 2 ? firstSentence(text) : text, p.fmt === 'story' ? { id: 'problem' } : {})
+  }
+
   function roundAcc(R: Round) {
     return R.res.length ? R.res.filter((x) => x === 'win').length / R.res.length : 0
   }
@@ -95,7 +104,7 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
     rerender()
     if (quiet) return
     const ar = S().autoRead
-    if (ar === 'all' || (ar === 'words' && p.fmt !== 'solve')) later(() => ref.current === R && R.p === p && !R.locked && speak(speechFor(p)), 350)
+    if (ar === 'all' || (ar === 'words' && p.fmt !== 'solve')) later(() => ref.current === R && R.p === p && !R.locked && readProblem(p, false), 350)
     else if (bonus) speak('Bonus challenge! This one is from the next level.')
   }
 
@@ -169,7 +178,7 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
     R.showNext = true
     const tok = (R.tok = Math.random())
     rerender()
-    speak(line, { onend: () => later(() => ref.current === R && R.tok === tok && !R.sheet && !pausedRef.current && goNext(), 650) })
+    speak(line, { id: 'feedback', onend: () => later(() => ref.current === R && R.tok === tok && !R.sheet && !pausedRef.current && goNext(), 650) })
   }
 
   function wrong(visual: () => void) {
@@ -179,7 +188,7 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
     visual()
     if (R.tries === 1) {
       R.feedback = say(pickFresh(TH().retry))
-      speak(R.feedback)
+      speak(R.feedback, { id: 'feedback' })
     } else {
       R.locked = true
       record(false)
@@ -356,9 +365,7 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
       <div className="card prob">
         {p.bonus && <div className="badge">⭐ Bonus challenge!</div>}
         {p.fmt === 'story' ? (
-          <div className="story" data-testid="story">
-            {p.story}
-          </div>
+          <ReadAlong id="problem" text={p.story} className="story" testId="story" />
         ) : (
           <div className="eq" data-testid="eq" style={{ fontSize: eqSize }} dangerouslySetInnerHTML={{ __html: R.eq }} />
         )}
@@ -380,7 +387,7 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
           </div>
         )}
         <div className="tools">
-          <button onClick={() => speak(speechFor(p))}>🔊 Read it</button>
+          <button onClick={() => readProblem(p, true)}>🔊 Read it</button>
           <button
             onClick={() => {
               if (!R.locked) R.helped = true
@@ -393,8 +400,8 @@ export default function Play({ config, paused, onLesson, onQuit, onEnd }: { conf
         </div>
       </div>
 
-      <div className="feedback" data-testid="feedback" aria-live="polite">
-        {R.feedback}
+      <div aria-live="polite">
+        <ReadAlong id="feedback" text={R.feedback} className="feedback" testId="feedback" />
       </div>
 
       {!R.agreeStage && !R.showNext && (

@@ -1,5 +1,6 @@
 import Dexie, { type Table } from 'dexie'
 import type { Attempt, Profile } from './model'
+import type { GameRecord } from '../game/ballgame'
 
 export interface Meta {
   deviceId: string
@@ -14,9 +15,11 @@ interface KV {
 class AppDB extends Dexie {
   attempts!: Table<Attempt, string>
   kv!: Table<KV, string>
+  games!: Table<GameRecord, string>
   constructor() {
     super('kam-math-allstars-v2')
     this.version(1).stores({ attempts: 'id, ts, synced', kv: 'key' })
+    this.version(2).stores({ games: 'id, ts, synced' })
   }
 }
 export const db = new AppDB()

@@ -1,10 +1,16 @@
 import { LEVELS, rungName } from '../content/levels'
 import { THEMES, type ThemeKey } from '../content/themes'
-import { update, useStore } from '../db/store'
+import { useEffect, useState } from 'react'
+import { loadLiveGame, update, useStore } from '../db/store'
+import { ordinal, total, type Game } from '../game/ballgame'
 import { sfx } from '../lib/sfx'
 import { speak } from '../lib/speech'
 
-export default function Home({ onPlay, onClimb, onParent }: { onPlay: (L: number, withLesson: boolean) => void; onClimb: () => void; onParent: () => void }) {
+export default function Home({ onPlay, onClimb, onParent, onGame, onCard }: { onPlay: (L: number, withLesson: boolean) => void; onClimb: () => void; onParent: () => void; onGame: (fresh: boolean) => void; onCard: () => void }) {
+  const [live, setLive] = useState<Game | null>(null)
+  useEffect(() => {
+    void loadLiveGame().then((g) => setLive(g && g.phase !== 'final' ? g : null))
+  }, [])
   const st = useStore()
   const f = st.profile.fields
   const th = THEMES[f.theme] || THEMES.baseball
@@ -24,8 +30,25 @@ export default function Home({ onPlay, onClimb, onParent }: { onPlay: (L: number
           ⚙️
         </button>
       </div>
+      <div className="card climb" data-testid="ballgame-card">
+        <div className="lbl">⚾ Ballgame</div>
+        <div className="ct">{live ? `Your game is waiting: ${live.half === 'top' ? 'top' : 'bottom'} of the ${ordinal(live.inning)}, ${total(live.us)} to ${total(live.them)}.` : 'Step up to the plate! Pick your pitch, hit the ball, and beat the other team.'}</div>
+        <button className="btn play-main" onClick={() => onGame(false)}>
+          ⚾ {live ? 'Keep playing' : 'Play ball!'}
+        </button>
+        <div className="row">
+          {live && (
+            <button className="chip" onClick={() => onGame(true)}>
+              🆕 Start a new game
+            </button>
+          )}
+          <button className="chip" onClick={onCard}>
+            🧢 My player card
+          </button>
+        </div>
+      </div>
       <div className="card">
-        <div className="lbl">Pick your theme</div>
+        <div className="lbl">Practice theme</div>
         <div className="chips">
           {(Object.entries(THEMES) as [ThemeKey, (typeof THEMES)[ThemeKey]][]).map(([k, t]) => (
             <button
@@ -42,8 +65,8 @@ export default function Home({ onPlay, onClimb, onParent }: { onPlay: (L: number
           ))}
         </div>
       </div>
-      <button className="btn play-main" onClick={() => launch(cur)}>
-        ▶ Play {LEVELS[cur].icon} {LEVELS[cur].name}
+      <button className="btn" onClick={() => launch(cur)}>
+        ▶ Practice {LEVELS[cur].icon} {LEVELS[cur].name}
       </button>
       <div className="card climb">
         <div className="lbl">🧗 The Climb</div>

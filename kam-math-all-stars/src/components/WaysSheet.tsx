@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import { speakable, strategies } from '../engine/strategies'
+import { strategies } from '../engine/strategies'
+import ReadAlong from './ReadAlong'
 import type { Problem } from '../engine/types'
 import { fmtN } from '../engine/util'
 import { numberLineSVG } from '../engine/visuals'
-import { speak } from '../lib/speech'
+import { speak, tokenize, type Tok } from '../lib/speech'
 
 /** "Ways to solve": every strategy for this problem, with its picture and a Hear-it button. */
 export default function WaysSheet({ p, reveal, onClose, onLesson }: { p: Problem; reveal: boolean; onClose: () => void; onLesson?: () => void }) {
@@ -12,7 +13,21 @@ export default function WaysSheet({ p, reveal, onClose, onLesson }: { p: Problem
   const [i, setI] = useState(0)
   const reduce = useReducedMotion()
   const s = list[i]
-  const hear = (k = i) => speak(speakable(list[k].name + '. ' + list[k].steps.join('. ')))
+  // Words for the strategy name and each step, so the voice and the highlight stay together.
+  const blocks = useMemo(
+    () =>
+      list.map((st) =>
+        [st.name, ...st.steps].map((line) => {
+          const toks: Tok[] = tokenize(line)
+          const last = toks[toks.length - 1]
+          if (last && !/[.!?:]$/.test(last.say)) toks[toks.length - 1] = { ...last, say: last.say + '.' }
+          return toks
+        }),
+      ),
+    [list],
+  )
+  const offsets = (k: number) => blocks[k].map((_, n) => blocks[k].slice(0, n).reduce((a, b) => a + b.length, 0))
+  const hear = (k = i) => speak(blocks[k].flat(), { id: 'ways' })
 
   // After a miss the answer is shown and the first strategy is read aloud.
   useEffect(() => {
@@ -51,8 +66,8 @@ export default function WaysSheet({ p, reveal, onClose, onLesson }: { p: Problem
           {s.html && <div className="extra" dangerouslySetInnerHTML={{ __html: s.html }} />}
           <ul className="steps">
             {s.steps.map((t, k) => (
-              <li key={k} style={{ animationDelay: `${k * 0.35}s` }}>
-                {t}
+              <li key={k} style={{ animationDelay: `${k * 0.35}s` }} aria-label={t}>
+                <ReadAlong id="ways" tokens={blocks[i][k + 1]} offset={offsets(i)[k + 1]} />
               </li>
             ))}
           </ul>
