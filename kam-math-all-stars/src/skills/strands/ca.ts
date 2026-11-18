@@ -22,6 +22,9 @@ const lineEl = (a: P, b: P, stroke = INK, sw = 3, dash = '') =>
   `<line x1="${n1(a[0])}" y1="${n1(a[1])}" x2="${n1(b[0])}" y2="${n1(b[1])}" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round"${dash ? ` stroke-dasharray="${dash}"` : ''}/>`
 const sum = (xs: number[]) => xs.reduce((a, x) => a + x, 0)
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
+const ONE: Record<string, string> = { feet: 'foot', inches: 'inch', miles: 'mile', blocks: 'block', yards: 'yard' }
+/** "1 foot", "3 feet" */
+const amt = (n: number, u: string) => `${n} ${n === 1 ? ONE[u] || u : u}`
 const isNum = (it: Item) => it.input === 'number' && typeof it.answer === 'number'
 const between = (x: number | string, lo: number, hi: number) => typeof x === 'number' && x >= lo && x <= hi
 
@@ -51,7 +54,7 @@ function chart(o: { n: number; ymax: number; ystep: number; ylabel: string; xlab
   for (let i = 0; i <= rowsN; i++) {
     const v = i * o.ystep
     s += lineEl([L, Y(v)], [L + PW, Y(v)], '#cfd8dc', 1.5)
-    if (rowsN <= 10 || i % 2 === 0) s += T(L - 9, Y(v) + 5, v, { size: 14, anchor: 'end' })
+    if (rowsN <= 12 || i % 2 === 0) s += T(L - 9, Y(v) + 5, v, { size: 14, anchor: 'end' })
   }
   if (o.steps) {
     let t = o.t0 || 0
@@ -79,9 +82,11 @@ function chart(o: { n: number; ymax: number; ystep: number; ylabel: string; xlab
   return svg(L + PW + 18, top + PH + 56, s, 400, 'a graph')
 }
 /** A good scale for the up-and-down numbers. */
-const scaleFor = (max: number) => {
-  const ystep = max <= 10 ? 1 : max <= 20 ? 2 : max <= 50 ? 5 : 10
-  return { ystep, ymax: Math.max(ystep * 4, Math.ceil(max / ystep) * ystep) }
+const scaleFor = (vals: number[]) => {
+  const max = Math.max(...vals)
+  // every value must sit on a grid line, with one line of head room
+  const ystep = [1, 2, 5, 10, 20].find((s) => vals.every((v) => v % s === 0) && max / s + 1 <= 11) || 10
+  return { ystep, ymax: (Math.ceil(max / ystep) + 1) * ystep }
 }
 
 interface Mover { who: string; verb: string; u: string; tu: string; thing: string }
@@ -140,7 +145,7 @@ function sumBar(k: number): string {
   return svg(W + 20, 108, s, 400, 'one whole bar with pieces filled in')
 }
 /** A ramp or hill as a right triangle with its rise and run written on it. */
-function rampPic(hills: { rise: number; run: number; name?: string }[], u: string): string {
+function rampPic(hills: { rise: number; run: number; name?: string; hide?: 'rise' | 'run' }[], u: string): string {
   const maxRun = Math.max(...hills.map((h) => h.run)),
     maxRise = Math.max(...hills.map((h) => h.rise))
   const cellW = 170,
@@ -152,7 +157,7 @@ function rampPic(hills: { rise: number; run: number; name?: string }[], u: strin
     const x1 = x0 + h.run * k,
       y1 = y0 - h.rise * k
     s += `<polygon points="${n1(x0)},${y0} ${n1(x1)},${y0} ${n1(x1)},${n1(y1)}" fill="${BOX[(i + 2) % BOX.length]}" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>`
-    s += T((x0 + x1) / 2, y0 + 20, `${h.run} across`, { size: 14 }) + T(x1 + 6, (y0 + y1) / 2 + 5, `${h.rise} up`, { size: 14, anchor: 'start' })
+    s += T((x0 + x1) / 2, y0 + 20, `${h.hide === 'run' ? '?' : h.run} across`, { size: 14, fill: h.hide === 'run' ? RED : INK }) + T(x1 + 6, (y0 + y1) / 2 + 5, `${h.hide === 'rise' ? '?' : h.rise} up`, { size: 14, anchor: 'start', fill: h.hide === 'rise' ? RED : INK })
     if (h.name) s += T(x0 + 4, 22, `Hill ${h.name}`, { size: 16, anchor: 'start' })
   })
   return svg(hills.length * cellW + 10, 180, s, hills.length * 200 + 20, `a hill, measured in ${u}`)
@@ -161,7 +166,7 @@ function rampPic(hills: { rise: number; run: number; name?: string }[], u: strin
 function slopeGrid(a: P, b: P, G: number, legs: boolean): string {
   const c = 30,
     L = 34,
-    top = 14
+    top = 30
   const X = (x: number) => L + x * c,
     Y = (y: number) => top + (G - y) * c
   let s = `<rect x="${L}" y="${top}" width="${G * c}" height="${G * c}" fill="#fff"/>`
@@ -244,9 +249,9 @@ export const gens: Record<string, Gen> = {
       unit: `${m.u} each ${m.tu}`,
       strategies: [
         strat('Share It Out', [`Speed is how far you go in 1 ${m.tu}.`, `Share ${D} ${m.u} over ${plural(t, m.tu)}.`, `${D} ÷ ${t} = ${v}`], D / t),
-        strat('Think Multiplication', [`What number times ${t} makes ${D}?`, `Try ${found}: ${found} × ${t} = ${D}. It fits.`, `So the speed is ${found} ${m.u} each ${m.tu}.`], found, t <= 6 ? { line: pts } : {}),
+        strat('Think Multiplication', [`What number times ${t} makes ${D}?`, `Try ${found}: ${found} × ${t} = ${D}. It fits.`, `So the speed is ${amt(found, m.u)} each ${m.tu}.`], found, t <= 6 ? { line: pts } : {}),
       ],
-      distractors: wrongs(v, [D - t, D + t, t, v + 1, v - 1, D]),
+      distractors: wrongs(v, [D - t, D + t, t, v + 1, v - 1, D].filter((x) => x > 0)),
       operands: [D, t],
       difficulty: d,
     }
@@ -313,7 +318,7 @@ export const gens: Record<string, Gen> = {
       }
       const next = pos[N] + jumps[N - 1]
       return {
-        prompt: `${mv.intro} The table shows how far ${mv.it} is at each second. It keeps the same speed. How far is it at second ${N + 1}?`,
+        prompt: `${mv.intro} The table shows how far ${mv.it} is at each second. It keeps the same speed. How far is ${mv.it} at second ${N + 1}?`,
         visual: tbl,
         input: 'number',
         answer: p0 + v * (N + 1),
@@ -396,7 +401,7 @@ export const gens: Record<string, Gen> = {
     const next = pos[N] + nextJump
     const all = [...diffs, nextJump]
     return {
-      prompt: `${mv.intro} It speeds up. The table shows how far ${mv.it} is at each second. The jumps keep growing the same way. How far is it at second ${N + 1}?`,
+      prompt: `${mv.intro} It speeds up. The table shows how far ${mv.it} is at each second. The jumps keep growing the same way. How far is ${mv.it} at second ${N + 1}?`,
       visual: tbl,
       input: 'number',
       answer: sum(Array.from({ length: N + 1 }, (_, i) => j0 + a * i)),
@@ -559,7 +564,7 @@ export const gens: Record<string, Gen> = {
     const t = d === 1 ? r.int(2, 5) : d === 2 ? r.int(3, 8) : r.int(3, 7)
     const t0 = d === 3 && r.chance(0.5) ? r.int(1, 3) : 0
     const n = Math.max(d === 1 ? 5 : 8, t0 + t + (d === 3 ? 1 : 0))
-    const { ystep, ymax } = scaleFor(v + (d === 1 ? 1 : ystepPad(v)))
+    const { ystep, ymax } = scaleFor([v])
     const ans = v * t
     const g = (text?: string) => chart({ n, ymax, ystep, ylabel: 'speed (feet each second)', steps: [{ v, t }], t0, boxText: text ? [text] : undefined })
     const perSec = Array.from({ length: t }, () => v)
@@ -598,7 +603,7 @@ export const gens: Record<string, Gen> = {
       steps.push({ v, t: d === 1 ? r.int(1, 3) : d === 2 ? r.int(1, 4) : r.int(2, 4) })
     }
     const total = sum(steps.map((s) => s.t))
-    const { ystep, ymax } = scaleFor(Math.max(...steps.map((s) => s.v)))
+    const { ystep, ymax } = scaleFor(steps.map((s) => s.v))
     const who = r.pick(['{n}', 'A runner', 'A surfer', 'A bike', 'A robot', 'A sled'])
     const boxes = steps.map((s) => s.v * s.t)
     const ans = sum(boxes)
@@ -611,7 +616,7 @@ export const gens: Record<string, Gen> = {
         run += s.v
         running.push(run)
       }
-    const story = steps.map((s, i) => `${i === 0 ? 'First' : i === parts - 1 ? 'Last' : 'Then'} ${s.v} feet each second for ${plural(s.t, 'second')}.`).join(' ')
+    const story = steps.map((s, i) => `${i === 0 ? 'First' : i === parts - 1 ? 'Last' : 'Then'} ${amt(s.v, 'feet')} each second for ${plural(s.t, 'second')}.`).join(' ')
     if (d === 3 && parts === 2) {
       const big = Math.max(...boxes),
         small = Math.min(...boxes)
@@ -678,7 +683,7 @@ export const gens: Record<string, Gen> = {
         visual: halvingPic(S, k, ctx.u),
         ...yn(ans, rng),
         strategies: [
-          strat('Halve and See', [...halvings, `There ${tiny === 1 ? 'is' : 'are'} still ${tiny} ${ctx.u} left. So the answer is ${yesNo(q === 0 ? tiny > 0 : tiny === 0)}.`], yesNo(q === 0 ? tiny > 0 : tiny === 0), { html: halvingPic(S, k, ctx.u, true) }),
+          strat('Halve and See', [...halvings, `There ${tiny === 1 ? 'is' : 'are'} still ${amt(tiny, ctx.u)} left. So the answer is ${yesNo(q === 0 ? tiny > 0 : tiny === 0)}.`], yesNo(q === 0 ? tiny > 0 : tiny === 0), { html: halvingPic(S, k, ctx.u, true) }),
           strat('Think About Halves', [`Each move covers only half of what is left.`, `The other half is always still there. It just gets smaller and smaller.`, `So after any number of moves a little bit is left: ${yesNo(ans)}.`], yesNo(S / 2 ** k > 0 ? q === 0 : q === 1)),
         ],
         operands: [S, k],
@@ -693,7 +698,7 @@ export const gens: Record<string, Gen> = {
       const doubles = [X]
       while (doubles[doubles.length - 1] <= S) doubles.push(doubles[doubles.length - 1] * 2)
       return {
-        prompt: `${open} How many ${ctx.n}s until less than ${X} ${ctx.u} ${X === 1 ? 'is' : 'are'} left?`,
+        prompt: `${open} How many ${ctx.n}s until less than ${amt(X, ctx.u)} ${X === 1 ? 'is' : 'are'} left?`,
         visual: halvingPic(S, steps, ctx.u),
         input: 'number',
         answer: k,
@@ -717,7 +722,7 @@ export const gens: Record<string, Gen> = {
         unit: ctx.u,
         strategies: [
           strat('Add the Moves', [`Each move is half of what was left: ${hops.join(', ')}.`, hops.length > 1 ? `${hops.join(' + ')} = ${gone}` : `There is just one move: ${gone} ${ctx.u}.`], gone, { html: halvingPic(S, k, ctx.u, true) }),
-          strat('Whole Trip Minus What Is Left', [`After ${plural(k, ctx.n)}, ${lefts[k]} ${ctx.u} ${lefts[k] === 1 ? 'is' : 'are'} left.`, `${S} − ${lefts[k]} = ${S - lefts[k]}`], S - lefts[k]),
+          strat('Whole Trip Minus What Is Left', [`After ${plural(k, ctx.n)}, ${amt(lefts[k], ctx.u)} ${lefts[k] === 1 ? 'is' : 'are'} left.`, `${S} − ${lefts[k]} = ${S - lefts[k]}`], S - lefts[k]),
         ],
         distractors: wrongs(gone, [lefts[k], S, hops[0], gone - hops[hops.length - 1], S - k * 2]),
         operands: [S, k],
@@ -756,6 +761,7 @@ export const gens: Record<string, Gen> = {
       { a: '{n} builds', of: 'a brick wall', done: 'is built', left: 'is left to build' },
       { a: 'A surfer paddles', of: 'the way to shore', done: 'has she paddled', left: 'is left' },
     ])
+    const the = ctx.of.replace(/^a /, 'the ')
     const story = `${ctx.a} ${p[0]} of ${ctx.of}, then ${p.slice(1).map((x) => `${x} more`).join(', then ')}.`
     const eq = `${fracEq(k)} = ${Q}`
     const tops = Array.from({ length: k }, (_, i) => den / 2 ** (i + 1))
@@ -766,7 +772,7 @@ export const gens: Record<string, Gen> = {
     const t = r.pick(d === 1 ? [0, 0, 1] : d === 2 ? [0, 1, 2, 4] : [0, 1, 2, 3, 4])
     if (t === 1) {
       return {
-        prompt: `${story} How much of ${ctx.of} ${ctx.left}? Type a fraction.`,
+        prompt: `${story} How much of ${the} ${ctx.left}? Type a fraction.`,
         visual: sumBar(k),
         input: 'fraction',
         answer: frac(den - total, den),
@@ -855,7 +861,7 @@ export const gens: Record<string, Gen> = {
       }
     }
     return {
-      prompt: `${story} How much of ${ctx.of} ${ctx.done} in all? Type a fraction.`,
+      prompt: `${story} How much of ${the} ${ctx.done} in all? Type a fraction.`,
       eq,
       visual: sumBar(k),
       input: 'fraction',
@@ -874,7 +880,7 @@ export const gens: Record<string, Gen> = {
   'ca.slope': (rng, d) => {
     const r = R(rng)
     const t = r.pick(d === 1 ? [0, 0, 1] : d === 2 ? [0, 1, 1] : [1, 2, 2, 3])
-    const u = r.pick(['feet', 'steps', 'blocks'])
+    const u = r.pick(['feet', 'blocks', 'yards'])
     const thing = r.pick(['skate ramp', 'hill', 'slide', 'roof', 'bike ramp', 'wave'])
     const findM = (rise: number, run: number) => {
       let m = 0
@@ -932,7 +938,7 @@ export const gens: Record<string, Gen> = {
       for (let h = m; h <= rise; h += m) count++
       return {
         prompt: askRise ? `A ${thing} goes up ${m} ${u} for each 1 across. It is ${run} ${u} across. How high does it go?` : `A ${thing} goes up ${m} ${u} for each 1 across. It is ${rise} ${u} high. How far across is it?`,
-        visual: rampPic([{ rise: askRise ? m : rise, run: askRise ? 1 : run }], u).replace(askRise ? '>1 across<' : `>${run} across<`, askRise ? '>1 across<' : '>? across<'),
+        visual: rampPic([{ rise, run, hide: askRise ? 'rise' : 'run' }], u),
         input: 'number',
         answer: askRise ? rise : run,
         unit: u,
@@ -986,10 +992,6 @@ export const gens: Record<string, Gen> = {
       difficulty: d,
     }
   },
-}
-/** A little head room above the speed line so the box does not touch the top. */
-function ystepPad(v: number): number {
-  return v <= 10 ? 1 : v <= 20 ? 2 : v <= 50 ? 5 : 10
 }
 
 export const teach: Record<string, string> = {
