@@ -47,13 +47,16 @@ export interface Tok {
   say: string
 }
 const SYMBOL_WORDS: Record<string, string> = { '−': 'minus', '-': 'minus', '+': 'plus', '×': 'times', '÷': 'divided by', '=': 'equals', '→': 'to', '?': 'what number', '✓': '', '·': '' }
-const FRACTION_WORDS: Record<string, [string, string]> = { 2: ['half', 'halves'], 3: ['third', 'thirds'], 4: ['fourth', 'fourths'], 5: ['fifth', 'fifths'], 10: ['tenth', 'tenths'] }
-const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']
+const FRACTION_WORDS: Record<string, [string, string]> = {
+  2: ['half', 'halves'], 3: ['third', 'thirds'], 4: ['fourth', 'fourths'], 5: ['fifth', 'fifths'], 6: ['sixth', 'sixths'], 7: ['seventh', 'sevenths'], 8: ['eighth', 'eighths'],
+  9: ['ninth', 'ninths'], 10: ['tenth', 'tenths'], 12: ['twelfth', 'twelfths'], 16: ['sixteenth', 'sixteenths'], 20: ['twentieth', 'twentieths'], 100: ['hundredth', 'hundredths'],
+}
 /** How one written word is spoken: math symbols become words, emoji are skipped. */
 export function sayWord(w: string): string {
   if (w in SYMBOL_WORDS) return SYMBOL_WORDS[w]
   const fr = /^(\d+)\/(\d+)([.,!?]?)$/.exec(w)
-  if (fr && FRACTION_WORDS[fr[2]] && NUMBER_WORDS[+fr[1]]) return `${NUMBER_WORDS[+fr[1]]} ${FRACTION_WORDS[fr[2]][+fr[1] > 1 ? 1 : 0]}${fr[3]}`
+  // "3/4" is said "3 fourths"; a bottom number we have no word for is said "3 over 14"
+  if (fr) return (FRACTION_WORDS[fr[2]] ? `${fr[1]} ${FRACTION_WORDS[fr[2]][+fr[1] === 1 ? 0 : 1]}` : `${fr[1]} over ${fr[2]}`) + fr[3]
   return w
     .replace(/(\d),(?=\d{3})/g, '$1')
     .replace(/[−]/g, ' minus ')
