@@ -16,9 +16,16 @@ FULL=1 npm run e2e # same, but plays every skill in the graph (slow)
 npm run build      # tests + typecheck + production build into dist/
 ```
 
-To try it on the iPad: `npm run build && npx vite preview --host`, open the address it prints in Safari,
-then Share → Add to Home Screen. (Offline mode and install need HTTPS, so for real use deploy `dist/`
-to a host such as Vercel with this folder as the project root.)
+To put it on the iPad (free, takes about 5 minutes, needs HTTPS for offline use and Add to Home Screen):
+
+1. Sign in at vercel.com with GitHub and choose **Add New → Project**, then import this repository.
+2. Set **Root Directory** to `kam-math-all-stars`. Everything else is read from `vercel.json`.
+3. Deploy. Vercel gives you an address like `https://kams-math-all-stars.vercel.app`.
+4. Until this branch is merged, set **Settings → Git → Production Branch** to the branch with this code,
+   so that address shows it (other branches get preview links that ask for a Vercel login).
+5. On the iPad, open the address in Safari, then **Share → Add to Home Screen**.
+
+Netlify works the same way (`netlify.toml` is included; set the base directory to `kam-math-all-stars`).
 
 ## Phase 1 status
 
